@@ -3,143 +3,109 @@
 <head>
   <base target="_top">
   <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; margin: 0; background-color: #f0f2f5; color: #333; }
-    .container { padding: 20px; }
-    h1 { color: #1c1e21; margin-top: 0; }
-    .category-list { margin-top: 15px; max-height: 250px; overflow-y: auto; border: 1px solid #ddd; padding: 10px; background-color: #fff; border-radius: 4px; }
-    .category-item { display: block; margin-bottom: 10px; }
-    label { font-size: 14px; display: flex; align-items: center; }
-    input[type="checkbox"] { margin-right: 10px; width: 18px; height: 18px; }
-    .footer-actions {
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    #loading-message { text-align: center; color: #888; }
+    #main-container { display: none; }
+    .controls { margin-bottom: 15px; padding-bottom: 10px; border-bottom: 1px solid #ccc; }
+    .controls button { padding: 5px 10px; margin-right: 10px; }
+    #category-list { max-height: 250px; overflow-y: auto; border: 1px solid #ddd; padding: 10px; background-color: #f9f9f9; }
+    .category-item { display: block; margin-bottom: 8px; }
+    .category-item label { cursor: pointer; }
+    .category-item input { margin-right: 8px; }
+    .footer-buttons { margin-top: 20px; text-align: right; }
+    #generate-button { padding: 10px 20px; font-weight: bold; background-color: #4CAF50; color: white; border: none; border-radius: 4px; cursor: pointer; }
+    #generate-button:disabled { background-color: #ccc; cursor: not-allowed; }
+    .nav-footer {
       position: fixed;
       bottom: 0;
       left: 0;
       width: 100%;
-      padding: 15px 20px;
-      background-color: #fff;
+      padding: 10px;
+      background-color: #f5f5f5;
       border-top: 1px solid #ddd;
       text-align: right;
       box-sizing: border-box;
     }
-    .button {
-      padding: 10px 20px;
-      font-size: 14px;
-      font-weight: bold;
-      border-radius: 5px;
-      border: none;
-      cursor: pointer;
-      transition: background-color 0.2s;
+    .nav-footer button {
+      background-color: #007bff;
+      color: white;
     }
-    #generate-btn { background-color: #1877f2; color: white; }
-    #generate-btn:disabled { background-color: #dcdfe3; color: #bec3c9; cursor: not-allowed; }
-    #cancel-btn { background-color: #e4e6eb; color: #4b4f56; margin-left: 10px; }
-    #status { margin-right: 15px; color: #606770; }
   </style>
 </head>
 <body>
-  <div class="container">
-    <h1>Paso 2: Seleccionar Categorías para Envasado</h1>
-    <p>Elige las categorías de productos para las que deseas generar la lista de envasado.</p>
-    <div id="category-list" class="category-list">
-      <!-- Las categorías se insertarán aquí dinámicamente -->
+  <div id="loading-message"> <p>Cargando datos de los pedidos...</p> </div>
+  <div id="main-container">
+    <h4>Selecciona las categorías para la lista de envasado:</h4>
+    <div class="controls">
+      <button id="select-all">Seleccionar todo</button>
+      <button id="deselect-all">Deseleccionar todo</button>
     </div>
-  </div>
-
-  <div class="footer-actions">
-      <span id="status">Cargando categorías...</span>
-      <button id="generate-btn" class="button" disabled>Generar Lista</button>
-      <button id="cancel-btn" class="button" onclick="google.script.host.close()">Cancelar</button>
+    <div id="category-list"></div>
+    <div class="footer-buttons"> <button id="generate-button">Generar y Preparar Impresión</button> </div>
   </div>
 
   <script>
-    const categoryListDiv = document.getElementById('category-list');
-    const generateBtn = document.getElementById('generate-btn');
-    const statusSpan = document.getElementById('status');
-
-    window.onload = function() {
-      google.script.run
-        .withSuccessHandler(renderCategories)
-        .withFailureHandler(handleError)
-        .getPackagingData();
-    };
+    const loadingMessageEl = document.getElementById('loading-message');
+    const mainContainerEl = document.getElementById('main-container');
+    const categoryListEl = document.getElementById('category-list');
+    const generateButton = document.getElementById('generate-button');
+    const selectAllButton = document.getElementById('select-all');
+    const deselectAllButton = document.getElementById('deselect-all');
 
     function renderCategories(categoryData) {
-      if (Object.keys(categoryData).length === 0) {
-        categoryListDiv.innerHTML = '<p>No hay categorías con productos para envasar.</p>';
-        statusSpan.textContent = 'Listo.';
+      loadingMessageEl.style.display = 'none';
+      mainContainerEl.style.display = 'block';
+      const sortedCategories = Object.keys(categoryData).sort();
+      if (sortedCategories.length === 0) {
+        categoryListEl.innerHTML = '<p>No se encontraron productos con categoría en los pedidos.</p>';
+        generateButton.disabled = true;
         return;
       }
-
-      let categoryHtml = '';
-      const sortedCategories = Object.keys(categoryData).sort();
-
-      sortedCategories.forEach(category => {
-        const productCount = Object.keys(categoryData[category].products).length;
-        categoryHtml += `
-          <div class="category-item">
-            <label>
-              <input type="checkbox" name="category" value="${category}">
-              ${category} (${productCount} producto${productCount > 1 ? 's' : ''})
-            </label>
-          </div>
-        `;
+      let html = '';
+      sortedCategories.forEach(categoryName => {
+        const productCount = categoryData[categoryName].count;
+        html += `<div class="category-item"><label><input type="checkbox" name="category" value="${categoryName}" checked> ${categoryName} (${productCount} productos)</label></div>`;
       });
-
-      categoryListDiv.innerHTML = categoryHtml;
-      statusSpan.textContent = 'Listo para seleccionar.';
-      generateBtn.disabled = false;
+      categoryListEl.innerHTML = html;
     }
 
-    generateBtn.addEventListener('click', function() {
-      const selectedCategories = [];
-      const checkboxes = document.querySelectorAll('input[name="category"]:checked');
-      checkboxes.forEach(checkbox => {
-        selectedCategories.push(checkbox.value);
-      });
-
+    function handleGenerateClick() {
+      generateButton.disabled = true;
+      generateButton.textContent = 'Generando...';
+      const selectedCategories = Array.from(document.querySelectorAll('input[name="category"]:checked')).map(checkbox => checkbox.value);
       if (selectedCategories.length === 0) {
         alert('Por favor, selecciona al menos una categoría.');
+        generateButton.disabled = false;
+        generateButton.textContent = 'Generar y Preparar Impresión';
         return;
       }
-
-      setLoadingState(true, 'Generando lista...');
-
       google.script.run
-        .withSuccessHandler(handleGenerationSuccess)
-        .withFailureHandler(handleError)
+        .withSuccessHandler(printUrl => {
+          window.open(printUrl, '_blank');
+          parent.postMessage({view: 'AcquisitionEditor'}, '*');
+        })
+        .withFailureHandler(error => {
+          alert('Error al generar la hoja: ' + error.message);
+          generateButton.disabled = false;
+          generateButton.textContent = 'Generar y Preparar Impresión';
+        })
         .generatePackagingSheet(selectedCategories);
-    });
-
-    function handleGenerationSuccess(printUrl) {
-      statusSpan.textContent = '¡Lista generada!';
-
-      // Create a link and show it to the user.
-      const link = document.createElement('a');
-      link.href = printUrl;
-      link.target = '_blank';
-      link.textContent = 'Abrir PDF para Imprimir';
-      link.style.marginRight = '15px';
-
-      const footer = document.querySelector('.footer-actions');
-      footer.insertBefore(link, statusSpan);
-
-      generateBtn.style.display = 'none'; // Hide button after use
-
-      // Optionally close the dialog after a delay
-      setTimeout(() => {
-        google.script.host.close();
-      }, 5000); // Close after 5 seconds
     }
 
-    function handleError(error) {
-      setLoadingState(false, `Error: ${error.message}`);
-      alert(`Ocurrió un error: ${error.message}`);
+    function initView() {
+      google.script.run
+        .withSuccessHandler(renderCategories)
+        .withFailureHandler(error => {
+          loadingMessageEl.innerHTML = `<p style="color: red;">Error al cargar los datos: ${error.message}</p>`;
+        })
+        .getPackagingData();
     }
+    initView();
 
-    function setLoadingState(isLoading, message) {
-      generateBtn.disabled = isLoading;
-      statusSpan.textContent = message;
-    }
+    selectAllButton.addEventListener('click', () => document.querySelectorAll('input[name="category"]').forEach(cb => cb.checked = true));
+    deselectAllButton.addEventListener('click', () => document.querySelectorAll('input[name="category"]').forEach(cb => cb.checked = false));
+    generateButton.addEventListener('click', handleGenerateClick);
+
   </script>
 </body>
 </html>
