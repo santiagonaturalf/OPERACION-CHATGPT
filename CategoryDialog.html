@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    #loading-message { text-align: center; color: #888; }
+    #main-container { display: none; }
+    .controls { margin-bottom: 15px; padding-bottom: 10px; border-bottom: 1px solid #ccc; }
+    .controls button { padding: 5px 10px; margin-right: 10px; }
+    #category-list { max-height: 250px; overflow-y: auto; border: 1px solid #ddd; padding: 10px; background-color: #f9f9f9; }
+    .category-item { display: block; margin-bottom: 8px; }
+    .category-item label { cursor: pointer; }
+    .category-item input { margin-right: 8px; }
+    .footer-buttons { margin-top: 20px; text-align: right; }
+    #generate-button { padding: 10px 20px; font-weight: bold; background-color: #4CAF50; color: white; border: none; border-radius: 4px; cursor: pointer; }
+    #generate-button:disabled { background-color: #ccc; cursor: not-allowed; }
+    .nav-footer {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      width: 100%;
+      padding: 10px;
+      background-color: #f5f5f5;
+      border-top: 1px solid #ddd;
+      text-align: right;
+      box-sizing: border-box;
+    }
+    .nav-footer button {
+      background-color: #007bff;
+      color: white;
+    }
+  </style>
+</head>
+<body>
+  <div id="loading-message"> <p>Cargando datos de los pedidos...</p> </div>
+  <div id="main-container">
+    <h4>Selecciona las categorías para la lista de envasado:</h4>
+    <div class="controls">
+      <button id="select-all">Seleccionar todo</button>
+      <button id="deselect-all">Deseleccionar todo</button>
+    </div>
+    <div id="category-list"></div>
+    <div class="footer-buttons"> <button id="generate-button">Generar y Preparar Impresión</button> </div>
+  </div>
+  
+  <script>
+    const loadingMessageEl = document.getElementById('loading-message');
+    const mainContainerEl = document.getElementById('main-container');
+    const categoryListEl = document.getElementById('category-list');
+    const generateButton = document.getElementById('generate-button');
+    const selectAllButton = document.getElementById('select-all');
+    const deselectAllButton = document.getElementById('deselect-all');
+
+    function renderCategories(categoryData) {
+      loadingMessageEl.style.display = 'none';
+      mainContainerEl.style.display = 'block';
+      const sortedCategories = Object.keys(categoryData).sort();
+      if (sortedCategories.length === 0) {
+        categoryListEl.innerHTML = '<p>No se encontraron productos con categoría en los pedidos.</p>';
+        generateButton.disabled = true;
+        return;
+      }
+      let html = '';
+      sortedCategories.forEach(categoryName => {
+        const productCount = categoryData[categoryName].count;
+        html += `<div class="category-item"><label><input type="checkbox" name="category" value="${categoryName}" checked> ${categoryName} (${productCount} productos)</label></div>`;
+      });
+      categoryListEl.innerHTML = html;
+    }
+
+    function handleGenerateClick() {
+      generateButton.disabled = true;
+      generateButton.textContent = 'Generando...';
+      const selectedCategories = Array.from(document.querySelectorAll('input[name="category"]:checked')).map(checkbox => checkbox.value);
+      if (selectedCategories.length === 0) {
+        alert('Por favor, selecciona al menos una categoría.');
+        generateButton.disabled = false;
+        generateButton.textContent = 'Generar y Preparar Impresión';
+        return;
+      }
+      google.script.run
+        .withSuccessHandler(printUrl => {
+          window.open(printUrl, '_blank');
+          parent.postMessage({view: 'AcquisitionEditor'}, '*');
+        })
+        .withFailureHandler(error => {
+          alert('Error al generar la hoja: ' + error.message);
+          generateButton.disabled = false;
+          generateButton.textContent = 'Generar y Preparar Impresión';
+        })
+        .generatePackagingSheet(selectedCategories);
+    }
+
+    function initView() {
+      google.script.run
+        .withSuccessHandler(renderCategories)
+        .withFailureHandler(error => {
+          loadingMessageEl.innerHTML = `<p style="color: red;">Error al cargar los datos: ${error.message}</p>`;
+        })
+        .getPackagingData();
+    }
+    initView();
+
+    selectAllButton.addEventListener('click', () => document.querySelectorAll('input[name="category"]').forEach(cb => cb.checked = true));
+    deselectAllButton.addEventListener('click', () => document.querySelectorAll('input[name="category"]').forEach(cb => cb.checked = false));
+    generateButton.addEventListener('click', handleGenerateClick);
+
+    document.getElementById('next-module-btn').addEventListener('click', () => {
+      parent.postMessage({view: 'AcquisitionEditor'}, '*');
+    });
+  </script>
+</body>
+</html>
