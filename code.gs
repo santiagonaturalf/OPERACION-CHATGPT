@@ -1117,10 +1117,35 @@ function getReconciliationData() {
 
 function showDashboard() {
   updateAcquisitionListAutomated(); // Actualiza la lista de adquisiciones automáticamente
-  const html = HtmlService.createHtmlOutputFromFile('DashboardDialog')
-    .setWidth(1200)
-    .setHeight(800);
-  SpreadsheetApp.getUi().showModalDialog(html, 'Dashboard de Operaciones');
+  const html = HtmlService.createHtmlOutputFromFile('LauncherDialog')
+    .setWidth(400)
+    .setHeight(250);
+  SpreadsheetApp.getUi().showModalDialog(html, 'Abrir Dashboard');
+}
+
+// --- FUNCIONES DE LA APLICACIÓN WEB ---
+
+/**
+ * Punto de entrada principal para la aplicación web. Sirve el HTML del dashboard.
+ * @param {Object} e - El objeto de evento de la solicitud GET.
+ * @returns {HtmlOutput} El contenido HTML para ser renderizado.
+ */
+function doGet(e) {
+  return HtmlService.createHtmlOutputFromFile('DashboardDialog')
+    .setTitle('Dashboard de Operaciones')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+/**
+ * Devuelve la URL de la aplicación web implementada.
+ * Esta función es llamada por el diálogo lanzador para saber qué URL abrir.
+ * @returns {string} La URL de la aplicación web.
+ */
+function getWebAppUrl() {
+  // Para que esto funcione, el script debe estar implementado como una aplicación web.
+  // Ir a "Implementar" > "Nueva implementación", seleccionar "Aplicación web"
+  // y asegurarse de que el acceso esté configurado como "Cualquier usuario" o según sea necesario.
+  return ScriptApp.getService().getUrl();
 }
 
 function startDashboardRefresh() {
