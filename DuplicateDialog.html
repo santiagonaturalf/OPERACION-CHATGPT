@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    #main-container { }
+    .duplicate-group {
+      border: 1px solid #ccc;
+      border-radius: 5px;
+      padding: 15px;
+      margin-bottom: 15px;
+    }
+    .customer-name {
+      font-weight: bold;
+      font-size: 1.1em;
+      margin-bottom: 10px;
+      padding-bottom: 5px;
+      border-bottom: 1px solid #eee;
+    }
+    .order-list label {
+      display: inline-block;
+      margin-right: 20px;
+      cursor: pointer;
+    }
+    .order-list input {
+      margin-right: 5px;
+    }
+    .footer-buttons {
+      margin-top: 20px;
+      text-align: right;
+    }
+    #delete-button {
+      padding: 10px 20px;
+      font-weight: bold;
+      background-color: #dc3545;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    #delete-button:disabled {
+      background-color: #ccc;
+      cursor: not-allowed;
+    }
+  </style>
+</head>
+<body>
+  <div id="main-container">
+    <h3>Pedidos Duplicados Encontrados</h3>
+    <p>Se encontraron clientes con más de un número de pedido. Revisa y selecciona los pedidos que deseas eliminar.</p>
+
+    <form id="duplicate-form">
+      <div id="duplicates-list">
+        <!-- Los duplicados se insertarán aquí -->
+      </div>
+      <div class="footer-buttons">
+        <button type="submit" id="delete-button">Eliminar Seleccionados</button>
+      </div>
+    </form>
+  </div>
+
+  <script>
+    const duplicatesListEl = document.getElementById('duplicates-list');
+    const deleteButton = document.getElementById('delete-button');
+    const duplicateData = JSON.parse(<?= duplicates ?>);
+
+    function renderDuplicates() {
+      let html = '';
+      for (const customerName in duplicateData) {
+        const orderNumbers = duplicateData[customerName];
+        html += `<div class="duplicate-group">`;
+        html += `<div class="customer-name">${customerName}</div>`;
+        html += `<div class="order-list">`;
+        orderNumbers.forEach(orderNum => {
+          html += `<label><input type="checkbox" name="orderToDelete" value="${orderNum}"> #${orderNum}</label>`;
+        });
+        html += `</div></div>`;
+      }
+      duplicatesListEl.innerHTML = html;
+    }
+
+    function handleFormSubmit(e) {
+      e.preventDefault();
+      deleteButton.disabled = true;
+      deleteButton.textContent = 'Eliminando...';
+
+      const selectedOrders = Array.from(document.querySelectorAll('input[name="orderToDelete"]:checked'))
+        .map(checkbox => checkbox.value);
+
+      if (selectedOrders.length === 0) {
+        alert('No has seleccionado ningún pedido para eliminar.');
+        deleteButton.disabled = false;
+        deleteButton.textContent = 'Eliminar Seleccionados';
+        return;
+      }
+
+      google.script.run
+        .withSuccessHandler(resultMessage => {
+          alert(resultMessage);
+          google.script.host.close();
+        })
+        .withFailureHandler(error => {
+          alert('Error: ' + error.message);
+          deleteButton.disabled = false;
+          deleteButton.textContent = 'Eliminar Seleccionados';
+        })
+        .deleteOrdersByNumber(selectedOrders);
+    }
+
+    function initView() {
+      renderDuplicates();
+    }
+    initView();
+    document.getElementById('duplicate-form').addEventListener('submit', handleFormSubmit);
+  </script>
+</body>
+</html>
