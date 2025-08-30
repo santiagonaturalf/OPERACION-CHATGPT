@@ -924,13 +924,14 @@ function importBankMovements(data) {
 
   Logger.log(`Total historical rows read: ${existingData.length}`);
 
-  // DEBUG: Key with Amount and Description
+  // Key with Amount, Description, and Date for robust duplicate detection.
   const existingKeys = new Set(existingData.map(row =>
-    `${String(row[0]).trim()}|${String(row[1]).trim()}`
+    // Using MONTO (col 0), DESCRIPCION (col 1), y FECHA (col 2)
+    `${String(row[0]).trim()}|${String(row[1]).trim()}|${String(row[2]).trim()}`
   ));
 
   if (existingKeys.size > 0) {
-    Logger.log(`Sample historical key (Amount + Desc): ${existingKeys.values().next().value}`);
+    Logger.log(`Sample historical key (Amount + Desc + Date): ${existingKeys.values().next().value}`);
   }
 
   // 3. Filter out duplicates from the new rows
@@ -938,10 +939,10 @@ function importBankMovements(data) {
   let duplicateCount = 0;
 
   newRows.forEach((row, index) => {
-    // DEBUG: Key with Amount and Description
-    const key = `${String(row[0]).trim()}|${String(row[1]).trim()}`;
+    // Key with Amount, Description, and Date for robust duplicate detection.
+    const key = `${String(row[0]).trim()}|${String(row[1]).trim()}|${String(row[2]).trim()}`;
     if (index === 0) {
-      Logger.log(`Sample new key (Amount + Desc): ${key}`);
+      Logger.log(`Sample new key (Amount + Desc + Date): ${key}`);
       Logger.log(`Does historical set have this new key? ${existingKeys.has(key)}`);
     }
     if (!existingKeys.has(key)) {
