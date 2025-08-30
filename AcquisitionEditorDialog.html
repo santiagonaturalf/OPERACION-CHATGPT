@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; margin: 0; background-color: #f0f2f5; color: #333; }
+    .container { padding: 20px; }
+    h1 { color: #1c1e21; margin-top: 0; }
+    table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+    th, td { padding: 12px 8px; text-align: left; border-bottom: 1px solid #ddd; }
+    th { font-weight: bold; font-size: 13px; color: #606770; background-color: #f5f6f7; }
+    td { font-size: 14px; vertical-align: middle; }
+    tr:hover { background-color: #f5f5f5; }
+    .low-stock-warning, .low-stock-warning:hover {
+      background-color: #fff3cd !important; /* A bootstrap-like warning yellow */
+    }
+    .negative-stock-error, .negative-stock-error:hover {
+      background-color: #f8d7da !important; /* A bootstrap-like danger red */
+      color: #721c24;
+    }
+    .inventory-correction-input {
+      width: 70px;
+      margin-left: 10px;
+      border-color: #721c24;
+      background-color: #f9e6e8;
+    }
+    input, select {
+      width: 95%;
+      padding: 8px;
+      font-size: 14px;
+      border-radius: 4px;
+      border: 1px solid #ccc;
+    }
+    .footer-actions {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      width: 100%;
+      padding: 15px 20px;
+      background-color: #fff;
+      border-top: 1px solid #ddd;
+      text-align: right;
+      box-sizing: border-box;
+    }
+    .button {
+      padding: 10px 20px;
+      font-size: 14px;
+      font-weight: bold;
+      border-radius: 5px;
+      border: none;
+      cursor: pointer;
+      transition: background-color 0.2s;
+    }
+    #save-btn { background-color: #1877f2; color: white; }
+    #save-btn:disabled { background-color: #dcdfe3; color: #bec3c9; cursor: not-allowed; }
+    #cancel-btn { background-color: #e4e6eb; color: #4b4f56; margin-left: 10px; }
+    #status { margin-right: 15px; color: #606770; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Editar Borrador de Adquisiciones</h1>
+    <p>Ajusta las cantidades, formatos y proveedores antes de generar la lista final y notificar.</p>
+    <table id="acquisitions-table">
+      <thead>
+        <tr>
+          <th>Producto Base</th>
+          <th>Inventario Actual</th>
+          <th>Necesidad Venta</th>
+          <th>Cantidad a Comprar (Sugerida)</th>
+          <th>Formato de Compra</th>
+          <th>Proveedor</th>
+          <th>Inventario al Finalizar</th>
+        </tr>
+      </thead>
+      <tbody>
+        <!-- Las filas de datos se insertarán aquí dinámicamente -->
+      </tbody>
+    </table>
+  </div>
+
+  <div class="footer-actions">
+      <span id="status">Cargando datos...</span>
+      <button id="save-btn" class="button" disabled>Guardar y Notificar</button>
+      <button id="cancel-btn" class="button" onclick="google.script.host.close()">Cancelar</button>
+  </div>
+
+  <script>
+    let planData = [];
+    let allSuppliers = [];
+    const tableBody = document.querySelector("#acquisitions-table tbody");
+    const saveBtn = document.getElementById('save-btn');
+    const statusSpan = document.getElementById('status');
+
+    window.onload = function() {
+      try {
+        // El servidor pasa un objeto. Se serializa a un literal de objeto JSON aquí.
+        const serverData = <?!= JSON.stringify(data) ?>;
+        planData = serverData.acquisitionPlan;
+        allSuppliers = serverData.allSuppliers;
+
+        // Guardamos una referencia a los objetos de formato completos en cada item del plan
+        planData.forEach(item => {
+          item.allFormatObjects = [...item.availableFormats]; // Copia de los objetos de formato
+          item.allFormatStrings = item.availableFormats.map(f => `${f.name} (${f.size} ${f.unit})`);
+          // Establecer el formato seleccionado inicial
+          item.selectedFormatString = `${item.suggestedFormat.name} (${item.suggestedFormat.size} ${item.suggestedFormat.unit})`;
+        });
+
+        renderTable();
+        statusSpan.textContent = 'Listo para editar.';
+        saveBtn.disabled = false;
+
+        // Event delegation for dynamic updates
+        tableBody.addEventListener('input', function(e) {
+          if (e.target.classList.contains('quantity-input') || e.target.classList.contains('format-select') || e.target.classList.contains('inventory-correction-input')) {
+            const row = e.target.closest('tr');
+            if (!row) return;
+            const index = parseInt(row.getAttribute('data-index'), 10);
+            updateRowAppearance(row, planData[index]);
+          }
+        });
+
+      } catch (e) {
+        console.error("Error al parsear o procesar los datos iniciales:", e);
+        statusSpan.textContent = 'Error al cargar los datos.';
+        alert("No se pudieron cargar los datos para el editor. Error: " + e.message);
+      }
+    };
+
+    function calculateFinalInventory(item, quantity, formatString, currentInventory) {
+      const selectedFormat = item.allFormatObjects.find(f => `${f.name} (${f.size} ${f.unit})` === formatString);
+      const formatSize = selectedFormat ? selectedFormat.size : 0;
+      const purchasedAmount = (parseFloat(quantity) || 0) * formatSize;
+      const finalInventory = (currentInventory || 0) + purchasedAmount - (parseFloat(item.totalNeed) || 0);
+      return finalInventory.toFixed(2); // Redondear a 2 decimales
+    }
+
+    function updateRowAppearance(row, item) {
+      let inventoryForCalc = item.currentInventory;
+      const correctionInput = row.querySelector('.inventory-correction-input');
+      
+      // If a correction box exists, its value becomes the new source of truth for calculations.
+      if (correctionInput) {
+        inventoryForCalc = parseFloat(correctionInput.value) || 0;
+      }
+      
+      const quantity = row.querySelector('.quantity-input').value;
+      const formatString = row.querySelector('.format-select').value;
+      const finalInventory = calculateFinalInventory(item, quantity, formatString, inventoryForCalc);
+      const finalInventoryCell = row.querySelector('.final-inventory');
+
+      // Always reset the low-stock warning before re-evaluating.
+      row.classList.remove('low-stock-warning');
+      
+      // The 'negative-stock-error' class on the row is set only at render time and indicates a SOURCE data problem.
+      // It is not removed here. We just decide what to display.
+      if (parseFloat(finalInventory) < 0) {
+        // If the final calculation is negative (regardless of the start), show an error message.
+        finalInventoryCell.textContent = 'REVISAR INVENTARIO';
+      } else {
+        // Otherwise, show the calculated value.
+        finalInventoryCell.textContent = `${finalInventory} ${item.unit}`;
+        // And apply the low-stock warning if needed.
+        if (parseFloat(finalInventory) < 3) {
+          row.classList.add('low-stock-warning');
+        }
+      }
+    }
+
+    function renderTable() {
+      tableBody.innerHTML = ''; // Limpiar la tabla antes de renderizar
+      planData.forEach((item, index) => {
+        const row = document.createElement('tr');
+        row.setAttribute('data-index', index);
+
+        let inventoryCellHtml;
+        if (item.currentInventory < 0) {
+          row.classList.add('negative-stock-error');
+          inventoryCellHtml = `
+            <td class="negative-stock-cell">
+              <span>${item.currentInventory} ${item.currentInventoryUnit}</span>
+              <input type="number" class="inventory-correction-input" placeholder="Corregir" value="0" step="any">
+            </td>`;
+        } else {
+          inventoryCellHtml = `<td>${item.currentInventory} ${item.currentInventoryUnit}</td>`;
+        }
+
+        // Crear las celdas de la fila (sin el valor final del inventario, se calculará en updateRowAppearance)
+        row.innerHTML = `
+          <td>${item.productName}</td>
+          ${inventoryCellHtml}
+          <td>${item.totalNeed} ${item.unit}</td>
+          <td><input type="number" class="quantity-input" value="${item.suggestedQty}" min="0" step="any"></td>
+          <td><select class="format-select">${createOptions(item.allFormatStrings, item.selectedFormatString)}</select></td>
+          <td><select class="supplier-select">${createOptions(allSuppliers, item.supplier)}</select></td>
+          <td class="final-inventory"></td>
+        `;
+        tableBody.appendChild(row);
+        
+        // Calcular y aplicar el estado inicial de la fila
+        updateRowAppearance(row, item);
+      });
+    }
+
+    function createOptions(optionsArray, selectedValue) {
+      return optionsArray.map(option =>
+        `<option value="${option}" ${option === selectedValue ? 'selected' : ''}>${option}</option>`
+      ).join('');
+    }
+
+    saveBtn.addEventListener('click', function() {
+      setLoadingState(true, 'Guardando cambios...');
+
+      const finalPlan = [];
+      const rows = tableBody.querySelectorAll('tr');
+
+      rows.forEach(row => {
+        const index = parseInt(row.getAttribute('data-index'), 10);
+        const originalItem = planData[index];
+
+        const quantity = row.querySelector('.quantity-input').value;
+        const selectedFormatString = row.querySelector('.format-select').value;
+        const supplier = row.querySelector('.supplier-select').value;
+
+        finalPlan.push({
+          ...originalItem, // Copia todas las propiedades originales (totalNeed, unit, etc.)
+          quantity: quantity,
+          selectedFormatString: selectedFormatString,
+          supplier: supplier,
+        });
+      });
+
+      google.script.run
+        .withSuccessHandler(handleSaveSuccess)
+        .withFailureHandler(handleError)
+        .saveAcquisitions(finalPlan);
+    });
+
+    function handleSaveSuccess(response) {
+      alert(response.message);
+      setLoadingState(true, 'Guardado. Abriendo panel de notificación...');
+      // Iniciar el siguiente paso del flujo de trabajo
+      google.script.run
+        .withSuccessHandler(() => google.script.host.close())
+        .withFailureHandler(handleError)
+        .startNotificationProcess();
+    }
+
+    function handleError(error) {
+      setLoadingState(false, `Error: ${error.message}`);
+      alert(`Ocurrió un error: ${error.message}`);
+    }
+
+    function setLoadingState(isLoading, message) {
+      saveBtn.disabled = isLoading;
+      statusSpan.textContent = message;
+    }
+  </script>
+</body>
+</html>
