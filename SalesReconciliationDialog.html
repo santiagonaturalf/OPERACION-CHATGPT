@@ -1,0 +1,562 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <style>
+    :root {
+      --primary-color: #4285F4; --success-color: #0F9D58; --danger-color: #DB4437; --warning-color: #F4B400; --info-color: #7e57c2;
+      --background-color: #f5f7fa; --section-bg: #ffffff; --border-color: #e0e0e0;
+      --text-color: #333; --text-light: #777; --font-family: 'Roboto', 'Arial', sans-serif;
+      --border-radius: 8px; --box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    body { font-family: var(--font-family); margin: 0; background-color: var(--background-color); color: var(--text-color); }
+    #app-container { padding: 20px; max-width: 1200px; margin: auto; }
+    h2 { color: var(--primary-color); border-bottom: 2px solid var(--primary-color); padding-bottom: 10px; }
+    h3 { margin-top: 0; padding-bottom: 5px; border-bottom: 1px solid var(--border-color); display: flex; align-items: center; gap: 8px; }
+    h3 .icon { font-size: 1.2em; }
+    .icon.warning { color: var(--warning-color); }
+    .icon.historical { color: var(--info-color); }
+    .section { background-color: var(--section-bg); padding: 20px; border-radius: var(--border-radius); box-shadow: var(--box-shadow); margin-bottom: 25px; }
+    #loading-spinner { text-align: center; padding: 40px; font-size: 1.2em; color: var(--text-light); }
+    .suggestion-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(550px, 1fr)); gap: 15px; }
+    .suggestion-card { border: 1px solid var(--border-color); border-radius: var(--border-radius); overflow: hidden; display: flex; flex-direction: column; }
+    .suggestion-card.historical-card { border-left: 4px solid var(--info-color); }
+    .suggestion-card-header { background-color: #f9f9f9; padding: 10px 15px; font-weight: bold; text-align: left; border-bottom: 1px solid var(--border-color);}
+    .suggestion-card-body { display: flex; flex-grow: 1; }
+    .suggestion-card .col { width: 33.33%; padding: 15px; border-right: 1px dashed var(--border-color); }
+    .suggestion-card .col:last-child { border-right: none; }
+    .suggestion-card p { margin: 0 0 8px 0; font-size: 0.9em; }
+    .suggestion-card p strong { color: var(--text-light); display: block; margin-bottom: 2px; }
+    .card-title-with-icon { display: flex; justify-content: space-between; align-items: flex-start; }
+    .results-col .score-percent { font-weight: bold; }
+    .suggestion-card-footer { padding: 10px; text-align: right; background-color: #f9f9f9; border-top: 1px solid var(--border-color); }
+    .btn { padding: 8px 15px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; transition: opacity 0.2s, background-color 0.2s; }
+    .btn-approve { background-color: var(--success-color); color: white; }
+    .btn-approve:disabled { background-color: #a5d6a7; cursor: not-allowed; }
+    .btn-cancel { background-color: var(--warning-color); color: white; }
+    .btn-cancel:disabled { background-color: #ffcc80; cursor: not-allowed; }
+    .btn-delete { background-color: var(--danger-color); color: white; }
+    .btn-delete:disabled { background-color: #ef9a9a; cursor: not-allowed; }
+    .manual-container { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    .manual-list { list-style-type: none; padding: 0; max-height: 250px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: var(--border-radius); }
+    .manual-list li { padding: 10px; border-bottom: 1px solid #f0f0f0; cursor: pointer; transition: background-color 0.2s; display: flex; justify-content: space-between; align-items: center; }
+    .manual-list li:hover { background-color: #f1f3f4; }
+    .manual-list li.selected { background-color: #e8f0fe; color: #1967d2; font-weight: bold; }
+    .manual-list li span { display: block; font-size: 0.8em; color: var(--text-light); }
+    #manual-assign-btn { background-color: var(--primary-color); color: white; margin-top: 15px; }
+    #manual-assign-btn:disabled { background-color: #a9c7fb; cursor: not-allowed; }
+    .list-item-actions { display: flex; align-items: center; gap: 10px; }
+    .filter-input { width: calc(100% - 20px); padding: 8px 10px; margin-bottom: 10px; border-radius: 4px; border: 1px solid var(--border-color); font-size: 0.9em; }
+    .manual-block { margin-bottom: 25px; }
+    #toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background-color: #333; color: white; padding: 12px 20px; border-radius: 6px; z-index: 100; font-size: 0.9em; opacity: 0; transition: opacity 0.3s, transform 0.3s; }
+    #toast.show { opacity: 1; transform: translate(-50%, -10px); }
+    #toast.error { background-color: var(--danger-color); }
+    .phone-text { font-size: 0.8em; color: var(--danger-color); font-style: italic; }
+    .whatsapp-icon { fill: #25D366; vertical-align: middle; }
+    .contact-action-container {
+      display: flex;
+      gap: 10px;
+      margin-top: 15px;
+      align-items: stretch;
+    }
+    #contact-message {
+      flex-grow: 1;
+      border-radius: 4px;
+      border: 1px solid var(--border-color);
+      padding: 8px;
+      font-family: var(--font-family);
+    }
+    #contact-btn, #manual-contact-btn {
+      background-color: #25D366;
+      color: white;
+      flex-shrink: 0;
+    }
+     #contact-btn:disabled, #manual-contact-btn:disabled {
+      background-color: #a5d6a7;
+      cursor: not-allowed;
+    }
+  </style>
+</head>
+<body>
+
+<div id="app-container">
+  <button id="go-to-dashboard-btn" class="btn" style="position: absolute; top: 28px; right: 28px; background-color: var(--info-color); color: white;">🚀 Ir a Dashboard</button>
+  <h2>Conciliación de Ingresos (Ventas)</h2>
+  <div id="loading-spinner"><p>Cargando datos de conciliación...</p></div>
+  <div id="main-content" style="display: none;">
+
+    <div class="section" id="historical-suggestions-section">
+      <h3><span class="icon historical">⭐</span> Sugerencias por Asignación Histórica</h3>
+      <div id="historical-suggestions-list" class="suggestion-grid"></div>
+    </div>
+    <div class="section" id="high-confidence-suggestions-section">
+      <h3><span class="icon success">✔️</span> Sugerencias de Alta Confianza</h3>
+      <div id="high-confidence-suggestions-list" class="suggestion-grid"></div>
+    </div>
+    <div class="section" id="low-confidence-suggestions-section">
+      <h3><span class="icon warning">⚠️</span> Sugerencias Poco Probables (PRECAUCIÓN)</h3>
+      <div id="low-confidence-suggestions-list" class="suggestion-grid"></div>
+    </div>
+    <div class="section" id="manual-section">
+        <h3>Acciones Manuales</h3>
+        <p>Aquí puedes aprobar pedidos sin un pago coincidente, o enlazar manualmente un pago con un pedido.</p>
+        <div class="manual-block">
+            <h4>Aprobar Pedido por Gerencia (En Espera de Pago)</h4>
+            <div id="management-approval-list" class="manual-list"></div>
+        </div>
+        <div class="manual-block">
+            <h4>Asignación Manual</h4>
+            <div class="manual-container">
+                <div class="column">
+                    <h5>1. Selecciona un Pedido (En Espera de Pago)</h5>
+                    <input type="text" id="order-search" class="filter-input" placeholder="Buscar por #pedido, nombre, monto...">
+                    <ul id="unpaid-orders-list" class="manual-list"></ul>
+                    <div class="contact-action-container" style="margin-top: 10px;">
+                      <textarea id="manual-contact-message" rows="3" placeholder="Selecciona un pedido para generar mensaje..." disabled></textarea>
+                      <button id="manual-contact-btn" class="btn" disabled>WhatsApp</button>
+                    </div>
+                </div>
+                <div class="column">
+                    <h5>2. Selecciona un Pago</h5>
+                    <input type="text" id="payment-search" class="filter-input" placeholder="Buscar por monto, nombre, fecha...">
+                    <ul id="unassigned-payments-list" class="manual-list"></ul>
+                </div>
+            </div>
+            <button id="manual-assign-btn" class="btn" disabled>Enlazar Pago y Pedido</button>
+        </div>
+    </div>
+
+    <div class="section" id="contact-section">
+      <h3><span class="icon">📱</span> Contactar Cliente</h3>
+      <p>Selecciona un cliente de la lista para generar el mensaje y enviarlo por WhatsApp.</p>
+      <div id="contact-list" class="manual-list"></div>
+      <div class="contact-action-container">
+        <textarea id="contact-message" rows="4" placeholder="Selecciona un cliente para generar el mensaje..." disabled></textarea>
+        <button id="contact-btn" class="btn" disabled>Contactar por WhatsApp</button>
+      </div>
+    </div>
+
+  </div>
+</div>
+<div id="toast"></div>
+
+<script>
+  const WHATSAPP_ICON_SVG = `<svg width="24" height="24" viewBox="0 0 32 32" class="whatsapp-icon" aria-hidden="true"><path d=" M19.11 17.205c-.372 0-1.088 1.39-1.518 1.39a.63.63 0 0 1-.315-.1c-.802-.402-1.504-.817-2.163-1.447-.545-.516-1.146-1.29-1.46-1.963a.426.426 0 0 1-.073-.215c0-.33.99-.945.99-1.49 0-.143-.73-2.09-.832-2.335-.143-.372-.214-.487-.6-.487-.187 0-.36-.044-.53-.044-.302 0-.53.09-.68.22-.23.19-.84.79-1.03 1.31-.19.52-.317 1.29-.317 1.87 0 .59.49 1.21.96 1.76 1.01 1.15 2.04 2.13 3.55 2.72.37.14.73.21.92.28.21.07.45.02.61-.05.16-.07.68-.28.91-.53.23-.25.38-.5.54-.73.16-.23.31-.45.42-.68.11-.23.04-.43-.03-.52-.07-.1-.23-.16-.49-.25z" fill-rule="evenodd"></path></svg>`;
+
+  let state = {
+    selectedPaymentId: null,
+    selectedOrderId: null,
+    selectedOrderRow: null,
+    selectedContact: null
+  };
+
+  window.addEventListener('load', loadReconciliationData);
+
+  function loadReconciliationData() {
+    showLoading(true);
+    google.script.run
+      .withSuccessHandler(onDataLoaded)
+      .withFailureHandler(onError)
+      .getReconciliationData();
+  }
+
+  function onDataLoaded(data) {
+    showLoading(false);
+    renderSuggestions(data.historicalSuggestions, 'historical-suggestions-list', true);
+    renderSuggestions(data.highConfidenceSuggestions, 'high-confidence-suggestions-list', false);
+    renderSuggestions(data.lowConfidenceSuggestions, 'low-confidence-suggestions-list', false);
+    renderManagementApproval(data.manualListOrders);
+    renderUnmatchedLists(data.unmatchedPayments, data.manualListOrders);
+    renderContactList(data.manualListOrders);
+    setupEventListeners();
+  }
+
+  function createContactElement(order) {
+    if (order.normalizedPhone) {
+      return WHATSAPP_ICON_SVG;
+    }
+    return '';
+  }
+
+  function renderSuggestions(suggestions, containerId, isHistorical) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+
+    if (!suggestions || suggestions.length === 0) {
+      container.innerHTML = '<p>No se encontraron sugerencias en esta categoría.</p>';
+      container.style.display = 'none';
+      container.parentElement.style.display = 'none';
+      return;
+    }
+    container.parentElement.style.display = 'block';
+    container.style.display = 'grid';
+
+    container.innerHTML = suggestions.map(s => {
+      const cardClass = isHistorical ? 'suggestion-card historical-card' : 'suggestion-card';
+      const resultsHtml = isHistorical
+        ? `<div class="col results-col"><p><strong>Coincidencia Histórica</strong></p><p>Este cliente ya ha pagado desde esta cuenta anteriormente.</p></div>`
+        : `<div class="col results-col">
+            <p><strong>Resultados:</strong></p>
+            <p>Nombre: <span class="score-percent">${s.nameScore}%</span></p>
+            <p>Monto: <span class="score-percent">${s.amountScore}%</span></p>
+            <p>Fecha: <span class="score-percent">${s.dateScore}%</span></p>
+          </div>`;
+
+      return `
+      <div class="${cardClass}" id="suggestion-${s.payment.paymentId}">
+        <div class="suggestion-card-header">
+           #${s.order.orderId} - ${s.order.customerName}
+        </div>
+        <div class="suggestion-card-body">
+          <div class="col">
+            <p><strong>Pago:</strong> ${s.payment.extractedName}</p>
+            <p><strong>Monto:</strong> $${s.payment.amount.toLocaleString('es-CL')}</p>
+            <p><strong>Fecha:</strong> ${s.payment.date}</p>
+          </div>
+          <div class="col">
+            <p><strong>Cliente - Pedido:</strong> ${s.order.customerName} - #${s.order.orderId}</p>
+            <p><strong>Monto:</strong> $${s.order.totalAmount.toLocaleString('es-CL')}</p>
+            <p><strong>Fecha pedido:</strong> ${s.order.date}</p>
+          </div>
+          ${resultsHtml}
+        </div>
+        <div class="suggestion-card-footer">
+          <button class="btn btn-approve" data-payment-id="${s.payment.paymentId}" data-order-id="${s.order.orderId}" data-order-row="${s.order.rowNumber}">Aprobar</button>
+        </div>
+      </div>
+    `}).join('');
+  }
+
+  function renderManagementApproval(orders) {
+    const container = document.getElementById('management-approval-list');
+    container.innerHTML = orders.length > 0 ? orders.map(o => `
+      <li id="mgmt-order-${o.rowNumber}">
+        <div>#${o.orderId} - ${o.customerName}<span>$${o.totalAmount.toLocaleString('es-CL')}</span></div>
+        <div class="list-item-actions">
+          <button class="btn btn-approve" data-order-id="${o.orderId}" data-order-row="${o.rowNumber}">Aprobar</button>
+          <button class="btn btn-cancel" data-order-id="${o.orderId}" data-order-row="${o.rowNumber}">Cancelar</button>
+          <button class="btn btn-delete" data-order-id="${o.orderId}" data-order-row="${o.rowNumber}">ELIMINAR</button>
+        </div>
+      </li>
+    `).join('') : '<li>No hay pedidos "En Espera de Pago".</li>';
+  }
+
+  function renderContactList(orders) {
+    const container = document.getElementById('contact-list');
+    if (!container) return;
+
+    container.innerHTML = orders.length > 0 ? orders.map(o => `
+      <li data-phone="${o.normalizedPhone || ''}" data-order-id="${o.orderId}" data-customer-name="${o.customerName}" data-total-amount="${o.totalAmount}">
+        <div>
+          #${o.orderId} - ${o.customerName}
+          <span>Monto: $${o.totalAmount.toLocaleString('es-CL')}</span>
+        </div>
+        ${createContactElement(o)}
+      </li>
+    `).join('') : '<li>No hay pedidos pendientes para contactar.</li>';
+  }
+
+  function renderUnmatchedLists(payments, orders) {
+    const paymentsContainer = document.getElementById('unassigned-payments-list');
+    paymentsContainer.innerHTML = payments.length > 0 ? payments.map(p => `
+      <li data-payment-id="${p.paymentId}" id="payment-${p.paymentId}">
+        <div>
+          $${p.amount.toLocaleString('es-CL')} - ${p.extractedName}
+          <span>${p.date}</span>
+        </div>
+      </li>
+    `).join('') : '<li>No hay pagos no asignados.</li>';
+
+    const ordersContainer = document.getElementById('unpaid-orders-list');
+    ordersContainer.innerHTML = orders.length > 0 ? orders.map(o => `
+      <li data-order-id="${o.orderId}" data-order-row="${o.rowNumber}" id="order-${o.rowNumber}" data-phone="${o.normalizedPhone || ''}" data-customer-name="${o.customerName}" data-total-amount="${o.totalAmount}">
+        <div>
+          #${o.orderId} - ${o.customerName}<span>$${o.totalAmount.toLocaleString('es-CL')}</span>
+        </div>
+      </li>
+    `).join('') : '<li>No hay pedidos "En Espera de Pago".</li>';
+  }
+
+  function setupEventListeners() {
+    document.getElementById('main-content').addEventListener('click', (e) => {
+      const approveButton = e.target.closest('button.btn-approve');
+      const cancelButton = e.target.closest('button.btn-cancel');
+      const deleteButton = e.target.closest('button.btn-delete');
+      const targetButton = approveButton || cancelButton || deleteButton;
+
+      if (!targetButton) return;
+
+      const suggestionCard = targetButton.closest('.suggestion-card');
+      const mgmtListItem = targetButton.closest('#management-approval-list li');
+
+      if (approveButton && suggestionCard) {
+          targetButton.disabled = true;
+          targetButton.textContent = 'Procesando...';
+          const { paymentId, orderId, orderRow } = targetButton.dataset;
+          google.script.run
+            .withSuccessHandler(res => onMatchApproved(res, paymentId, orderId, orderRow))
+            .withFailureHandler(err => onError(err, targetButton))
+            .approveMatch(paymentId, orderId);
+      } else if (mgmtListItem) {
+          const { orderId, orderRow } = targetButton.dataset;
+
+          if(deleteButton) {
+              if (!confirm(`¿Estás seguro de que quieres ELIMINAR el pedido #${orderId}? Esta acción no se puede deshacer.`)) {
+                  return;
+              }
+              targetButton.textContent = 'Eliminando...';
+          } else if (cancelButton) {
+              targetButton.textContent = 'Cancelando...';
+          } else if (approveButton) {
+              targetButton.textContent = 'Aprobando...';
+          }
+          targetButton.disabled = true;
+
+          if (approveButton) {
+            google.script.run
+              .withSuccessHandler(res => onManagementAction(res, orderId, orderRow))
+              .withFailureHandler(err => onError(err, targetButton))
+              .approveOrderForManagement(orderId);
+          } else if (cancelButton) {
+            google.script.run
+              .withSuccessHandler(res => onManagementAction(res, orderId, orderRow))
+              .withFailureHandler(err => onError(err, targetButton))
+              .cancelOrder(orderId);
+          } else if (deleteButton) {
+            google.script.run
+              .withSuccessHandler(res => onManagementAction(res, orderId, orderRow))
+              .withFailureHandler(err => onError(err, targetButton))
+              .deleteOrder(orderId);
+          }
+      }
+    });
+
+    document.getElementById('unassigned-payments-list').addEventListener('click', e => handleSelection(e.target.closest('li'), 'payment'));
+    document.getElementById('unpaid-orders-list').addEventListener('click', e => handleSelection(e.target.closest('li'), 'order'));
+    document.getElementById('manual-assign-btn').addEventListener('click', handleManualAssign);
+    document.getElementById('contact-list').addEventListener('click', handleContactSelection);
+    document.getElementById('contact-btn').addEventListener('click', handleContactSend);
+    document.getElementById('manual-contact-btn').addEventListener('click', handleManualContactSend);
+
+    addFilterListener('payment-search', 'unassigned-payments-list');
+    addFilterListener('order-search', 'unpaid-orders-list', (text) => text.replace(/[#$.]/g, ''));
+    document.getElementById('go-to-dashboard-btn').addEventListener('click', () => google.script.run.showDashboard());
+  }
+
+  function getDynamicMessage(customerName, orderId, totalAmount) {
+      const formattedAmount = Number(totalAmount).toLocaleString('es-CL');
+      return `hola, le escribo del delivery de frutas y verduras Santiago natural food ☺ tenemos registro de un pedido suyo (${customerName}, #${orderId}), pero quedó como pendiente de confirmación pues no hemos recibido el pago (por un monto de $${formattedAmount}), por lo mismo le escribíamos, para saber si necesita este pedido, si lo necesita nos avisa ojalá lo mas pronto posible para poder organizar el envio. para concretar el pago le puedo dejar datos de transferencia. nos avisa 🙏`;
+  }
+
+  function handleContactSelection(event) {
+    const listItem = event.target.closest('li');
+    if (!listItem) return;
+
+    const { phone, orderId, customerName, totalAmount } = listItem.dataset;
+    if (!phone) {
+      showToast("Este cliente no tiene un número de teléfono válido.", true);
+      return;
+    }
+
+    const contactList = document.getElementById('contact-list');
+    const currentlySelected = contactList.querySelector('.selected');
+    if (currentlySelected) {
+      currentlySelected.classList.remove('selected');
+    }
+
+    const contactBtn = document.getElementById('contact-btn');
+    const messageBox = document.getElementById('contact-message');
+
+    if (currentlySelected === listItem) {
+      state.selectedContact = null;
+      contactBtn.disabled = true;
+      messageBox.value = '';
+      messageBox.disabled = true;
+    } else {
+      listItem.classList.add('selected');
+      state.selectedContact = { phone, orderId, customerName, totalAmount };
+      contactBtn.disabled = false;
+      messageBox.disabled = false;
+      messageBox.value = getDynamicMessage(customerName, orderId, totalAmount);
+    }
+  }
+
+  function handleContactSend() {
+    if (state.selectedContact) {
+      const { phone, orderId, customerName, totalAmount } = state.selectedContact;
+      let message = document.getElementById('contact-message').value;
+
+      if (!message.trim()) {
+        message = getDynamicMessage(customerName, orderId, totalAmount);
+      }
+
+      const encodedMessage = encodeURIComponent(message);
+      const url = `https://web.whatsapp.com/send?phone=${phone}&text=${encodedMessage}`;
+      window.open(url, '_blank');
+    }
+  }
+
+  function handleManualContactSend() {
+    if (state.selectedOrderId) {
+      const selectedOrderLi = document.getElementById(`order-${state.selectedOrderRow}`);
+      if (!selectedOrderLi) return;
+      const { phone, orderId, customerName, totalAmount } = selectedOrderLi.dataset;
+
+      if (phone) {
+        let message = document.getElementById('manual-contact-message').value;
+        if (!message.trim()) {
+          message = getDynamicMessage(customerName, orderId, totalAmount);
+        }
+        const encodedMessage = encodeURIComponent(message);
+        const url = `https://web.whatsapp.com/send?phone=${phone}&text=${encodedMessage}`;
+        window.open(url, '_blank');
+      } else {
+        showToast("El cliente seleccionado para asignación manual no tiene un teléfono válido.", true);
+      }
+    }
+  }
+
+  function addFilterListener(inputId, listId, textCleaner) {
+    const input = document.getElementById(inputId);
+    input.addEventListener('input', (e) => {
+      const searchTerm = e.target.value.toLowerCase();
+      const list = document.getElementById(listId);
+      const items = list.getElementsByTagName('li');
+      for (let i = 0; i < items.length; i++) {
+        let itemText = items[i].textContent.toLowerCase();
+        if(textCleaner) {
+          itemText = textCleaner(itemText);
+        }
+        if (itemText.includes(searchTerm)) {
+          items[i].style.display = 'flex';
+        } else {
+          items[i].style.display = 'none';
+        }
+      }
+    });
+  }
+
+  function handleSelection(element, type) {
+    if (!element) return;
+    const list = element.parentElement;
+
+    if (type === 'payment') {
+      const isSelected = element.dataset.paymentId === state.selectedPaymentId;
+      if (list.querySelector('.selected')) list.querySelector('.selected').classList.remove('selected');
+      state.selectedPaymentId = isSelected ? null : element.dataset.paymentId;
+      if (!isSelected) element.classList.add('selected');
+    } else { // order
+      const isSelected = element.dataset.orderId === state.selectedOrderId;
+      if (list.querySelector('.selected')) list.querySelector('.selected').classList.remove('selected');
+      state.selectedOrderId = isSelected ? null : element.dataset.orderId;
+      state.selectedOrderRow = isSelected ? null : element.dataset.orderRow;
+      if (!isSelected) {
+        element.classList.add('selected');
+        // Also handle the new WhatsApp functionality for this list
+        const { phone, orderId, customerName, totalAmount } = element.dataset;
+        const manualContactBtn = document.getElementById('manual-contact-btn');
+        const manualMessageBox = document.getElementById('manual-contact-message');
+        if (phone) {
+          manualMessageBox.value = getDynamicMessage(customerName, orderId, totalAmount);
+          manualMessageBox.disabled = false;
+          manualContactBtn.disabled = false;
+        } else {
+          manualMessageBox.value = "Este cliente no tiene un teléfono válido.";
+          manualMessageBox.disabled = true;
+          manualContactBtn.disabled = true;
+        }
+      } else {
+        // Deselected
+        document.getElementById('manual-contact-message').value = "Selecciona un pedido para generar mensaje...";
+        document.getElementById('manual-contact-message').disabled = true;
+        document.getElementById('manual-contact-btn').disabled = true;
+      }
+    }
+    document.getElementById('manual-assign-btn').disabled = !(state.selectedPaymentId && state.selectedOrderId);
+  }
+
+  function handleManualAssign() {
+    const btn = document.getElementById('manual-assign-btn');
+    btn.disabled = true;
+    btn.textContent = 'Asignando...';
+    google.script.run
+      .withSuccessHandler(res => onMatchApproved(res, state.selectedPaymentId, state.selectedOrderId, state.selectedOrderRow))
+      .withFailureHandler(err => onError(err, btn))
+      .approveMatch(state.selectedPaymentId, state.selectedOrderId);
+  }
+
+  function onMatchApproved(response, paymentId, orderId, orderRow) {
+    if (response.status === 'success') {
+      showToast(response.message);
+      removePaymentElements(paymentId);
+      removeOrderElements(orderId, orderRow);
+      // Reset manual selection
+      state.selectedPaymentId = null;
+      state.selectedOrderId = null;
+      state.selectedOrderRow = null;
+      document.getElementById('manual-assign-btn').disabled = true;
+      document.getElementById('manual-assign-btn').textContent = 'Enlazar Pago y Pedido';
+    } else {
+      onError(response, document.querySelector(`[data-payment-id="${paymentId}"]`));
+    }
+  }
+
+  function onManagementAction(response, orderId, orderRow) {
+    if (response.status === 'success') {
+      showToast(response.message);
+      removeOrderElements(orderId, orderRow);
+    } else {
+      const listItem = document.getElementById(`mgmt-order-${orderRow}`);
+      const button = listItem ? listItem.querySelector('button:disabled') : null;
+      onError(response, button);
+    }
+  }
+
+  function removePaymentElements(paymentId) {
+    document.querySelectorAll(`[id*="${paymentId}"]`).forEach(el => el.remove());
+  }
+
+  function removeOrderElements(orderId, orderRow) {
+    // Remove suggestion cards that contain this order
+    document.querySelectorAll(`[data-order-id="${orderId}"]`).forEach(el => {
+      const card = el.closest('.suggestion-card');
+      if(card) card.remove();
+    });
+    // Remove from manual lists by unique row-based ID
+    document.getElementById(`order-${orderRow}`)?.remove();
+    document.getElementById(`mgmt-order-${orderRow}`)?.remove();
+    document.querySelector(`#contact-list li[data-order-id="${orderId}"]`)?.remove();
+  }
+
+  function showLoading(isLoading) {
+    document.getElementById('loading-spinner').style.display = isLoading ? 'block' : 'none';
+    document.getElementById('main-content').style.display = isLoading ? 'none' : 'block';
+  }
+
+  function onError(error, button) {
+    showToast(error.message || String(error), true);
+    if (button) {
+      button.disabled = false;
+      if (button.classList.contains('btn-approve')) {
+        button.textContent = 'Aprobar';
+      } else if (button.classList.contains('btn-cancel')) {
+        button.textContent = 'Cancelar';
+      } else if (button.classList.contains('btn-delete')) {
+        button.textContent = 'ELIMINAR';
+      } else if (button.id === 'manual-assign-btn') {
+         button.textContent = 'Enlazar Pago y Pedido';
+      } else {
+         button.textContent = 'Aprobar'; // Fallback
+      }
+    }
+  }
+
+  function showToast(message, isError = false) {
+    const toast = document.getElementById('toast');
+    toast.textContent = message;
+    toast.className = isError ? 'show error' : 'show';
+    setTimeout(() => { toast.className = toast.className.replace('show', ''); }, 4000);
+  }
+</script>
+</body>
+</html>
