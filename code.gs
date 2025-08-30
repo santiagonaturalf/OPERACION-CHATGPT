@@ -34,6 +34,7 @@ function onOpen() {
 
   ui.createMenu('Módulo de Finanzas')
     .addItem('💰 Importar Movimientos', 'showImportMovementsDialog')
+    .addItem('📦 Importar Pedidos (Pegar)', 'showPasteImportDialog')
     .addItem('📊 Conciliar Ingresos (Ventas)', 'showConciliationDialog')
     .addItem('🛒 Conciliar Egresos (Compras)', 'showExpenseConciliationDialog')
     .addSeparator()
