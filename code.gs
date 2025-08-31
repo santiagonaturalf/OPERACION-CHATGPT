@@ -34,6 +34,7 @@ function onOpen() {
 
   ui.createMenu('Módulo de Finanzas')
     .addItem('💰 Importar Movimientos', 'showImportMovementsDialog')
+    .addItem('📦 Importar Pedidos (Pegar)', 'showPasteImportDialog')
     .addItem('📊 Conciliar Ingresos (Ventas)', 'showConciliationDialog')
     .addItem('🛒 Conciliar Egresos (Compras)', 'showExpenseConciliationDialog')
     .addSeparator()
@@ -924,13 +925,14 @@ function importBankMovements(data) {
 
   Logger.log(`Total historical rows read: ${existingData.length}`);
 
-  // DEBUG: Key with Amount and Description
+  // Key with Amount, Description, and Date for robust duplicate detection.
   const existingKeys = new Set(existingData.map(row =>
-    `${String(row[0]).trim()}|${String(row[1]).trim()}`
+    // Using MONTO (col 0), DESCRIPCION (col 1), y FECHA (col 2)
+    `${String(row[0]).trim()}|${String(row[1]).trim()}|${String(row[2]).trim()}`
   ));
 
   if (existingKeys.size > 0) {
-    Logger.log(`Sample historical key (Amount + Desc): ${existingKeys.values().next().value}`);
+    Logger.log(`Sample historical key (Amount + Desc + Date): ${existingKeys.values().next().value}`);
   }
 
   // 3. Filter out duplicates from the new rows
@@ -938,10 +940,10 @@ function importBankMovements(data) {
   let duplicateCount = 0;
 
   newRows.forEach((row, index) => {
-    // DEBUG: Key with Amount and Description
-    const key = `${String(row[0]).trim()}|${String(row[1]).trim()}`;
+    // Key with Amount, Description, and Date for robust duplicate detection.
+    const key = `${String(row[0]).trim()}|${String(row[1]).trim()}|${String(row[2]).trim()}`;
     if (index === 0) {
-      Logger.log(`Sample new key (Amount + Desc): ${key}`);
+      Logger.log(`Sample new key (Amount + Desc + Date): ${key}`);
       Logger.log(`Does historical set have this new key? ${existingKeys.has(key)}`);
     }
     if (!existingKeys.has(key)) {
@@ -1115,10 +1117,35 @@ function getReconciliationData() {
 
 function showDashboard() {
   updateAcquisitionListAutomated(); // Actualiza la lista de adquisiciones automáticamente
-  const html = HtmlService.createHtmlOutputFromFile('DashboardDialog')
-    .setWidth(1200)
-    .setHeight(800);
-  SpreadsheetApp.getUi().showModalDialog(html, 'Dashboard de Operaciones');
+  const html = HtmlService.createHtmlOutputFromFile('LauncherDialog')
+    .setWidth(400)
+    .setHeight(250);
+  SpreadsheetApp.getUi().showModalDialog(html, 'Abrir Dashboard');
+}
+
+// --- FUNCIONES DE LA APLICACIÓN WEB ---
+
+/**
+ * Punto de entrada principal para la aplicación web. Sirve el HTML del dashboard.
+ * @param {Object} e - El objeto de evento de la solicitud GET.
+ * @returns {HtmlOutput} El contenido HTML para ser renderizado.
+ */
+function doGet(e) {
+  return HtmlService.createHtmlOutputFromFile('DashboardDialog')
+    .setTitle('Dashboard de Operaciones')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+/**
+ * Devuelve la URL de la aplicación web implementada.
+ * Esta función es llamada por el diálogo lanzador para saber qué URL abrir.
+ * @returns {string} La URL de la aplicación web.
+ */
+function getWebAppUrl() {
+  // Para que esto funcione, el script debe estar implementado como una aplicación web.
+  // Ir a "Implementar" > "Nueva implementación", seleccionar "Aplicación web"
+  // y asegurarse de que el acceso esté configurado como "Cualquier usuario" o según sea necesario.
+  return ScriptApp.getService().getUrl();
 }
 
 function startDashboardRefresh() {

@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <style>
+      body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; margin: 20px; background-color: #f0f2f5; }
+      textarea { width: 98%; height: 300px; margin-bottom: 15px; font-family: monospace; font-size: 12px; border: 1px solid #ccc; border-radius: 4px; padding: 10px; }
+      button { padding: 10px 20px; font-size: 14px; font-weight: bold; border-radius: 5px; border: none; cursor: pointer; background-color: #1877f2; color: white; }
+      button:disabled { background-color: #dcdfe3; color: #bec3c9; cursor: not-allowed; }
+      #status { margin-top: 15px; font-style: italic; color: #606770; }
+    </style>
+  </head>
+  <body>
+    <h2>Importar Pedidos por Copiado y Pegado</h2>
+    <p>Copia los datos desde tu hoja de cálculo (incluyendo la fila de encabezados) y pégalos en el siguiente campo.</p>
+
+    <textarea id="paste-area" placeholder="Pega tus datos aquí..."></textarea>
+    <button id="process-btn">Procesar e Importar</button>
+
+    <div id="status"></div>
+
+    <script>
+      const processBtn = document.getElementById('process-btn');
+      const pasteArea = document.getElementById('paste-area');
+      const statusDiv = document.getElementById('status');
+
+      processBtn.addEventListener('click', () => {
+        const textData = pasteArea.value;
+        if (!textData.trim()) {
+          alert('Por favor, pega los datos en el área de texto.');
+          return;
+        }
+
+        statusDiv.textContent = 'Procesando...';
+        processBtn.disabled = true;
+
+        google.script.run
+          .withSuccessHandler(message => {
+            statusDiv.textContent = message;
+            processBtn.disabled = false;
+            alert(message);
+            // Si la importación fue exitosa, podemos cerrar el diálogo
+            if (message.startsWith('¡Éxito!')) {
+                google.script.host.close();
+            }
+          })
+          .withFailureHandler(err => {
+            statusDiv.textContent = `Error: ${err.message}`;
+            processBtn.disabled = false;
+            alert(`Error: ${err.message}`);
+          })
+          .importOrdersFromPastedText(textData);
+      });
+    </script>
+  </body>
+</html>

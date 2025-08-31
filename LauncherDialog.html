@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      margin: 0;
+      padding: 20px;
+      text-align: center;
+      background-color: #f0f2f5;
+    }
+    #container {
+      margin: 20px auto;
+    }
+    a.button {
+      display: inline-block;
+      padding: 12px 24px;
+      font-size: 16px;
+      font-weight: bold;
+      color: white;
+      background-color: #1877f2;
+      border-radius: 6px;
+      text-decoration: none;
+      cursor: pointer;
+      border: none;
+    }
+    a.button:hover {
+      background-color: #166fe5;
+    }
+    p {
+      margin-bottom: 20px;
+      color: #606770;
+    }
+  </style>
+</head>
+<body>
+  <div id="container">
+    <h2>Dashboard Interactivo</h2>
+    <p>El dashboard se abrirá en una nueva pestaña del navegador para una mejor experiencia.</p>
+    <a id="dashboard-link" href="#" target="_blank" class="button">Abrir Dashboard</a>
+  </div>
+
+  <script>
+    function initView() {
+      google.script.run.withSuccessHandler(function(url) {
+        // Append a timestamp to the URL to prevent caching issues.
+        const urlWithCacheBust = url + (url.includes('?') ? '&' : '?') + 'v=' + new Date().getTime();
+        document.getElementById('dashboard-link').href = urlWithCacheBust;
+
+        // Automatically close the dialog after the user clicks the link.
+        document.getElementById('dashboard-link').addEventListener('click', function() {
+          google.script.host.close();
+        });
+
+      }).getWebAppUrl();
+    }
+    initView();
+  </script>
+</body>
+</html>
