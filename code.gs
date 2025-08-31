@@ -14,6 +14,7 @@ function onOpen() {
     .addItem('🚀 Abrir Dashboard de Operaciones', 'showDashboard')
     .addSeparator()
     .addItem('🚚 Comanda Rutas', 'showComandaRutasDialog')
+    .addItem('💬 Notificar a Proveedores', 'startNotificationProcess')
     .addSeparator()
     .addItem('📈 Analizar Adquisiciones', 'runPriceAnalysis')
     .addSeparator();
