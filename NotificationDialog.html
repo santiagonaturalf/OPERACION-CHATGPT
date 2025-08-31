@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    #loading-message, #error-message { text-align: center; color: #888; }
+    #error-message { color: red; }
+    #main-container { display: none; }
+    .supplier-selector-container { margin-bottom: 20px; }
+    #supplier-selector { padding: 8px; font-size: 16px; width: 100%; }
+    #order-details { margin-top: 15px; border-top: 1px solid #ccc; padding-top: 15px; }
+    #order-list { list-style-type: none; padding: 0; }
+    #order-list li { margin-bottom: 5px; }
+    .whatsapp-button {
+      margin-top: 15px;
+      padding: 10px 15px;
+      background-color: #25D366;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-weight: bold;
+    }
+    .whatsapp-button:disabled { background-color: #ccc; cursor: not-allowed; }
+    .edit-button {
+      padding: 8px 12px;
+      background-color: #f0f0f0;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      cursor: pointer;
+      font-weight: bold;
+      margin-bottom: 20px;
+      display: block; /* Para que ocupe su propia línea */
+      width: fit-content; /* Para que no ocupe todo el ancho */
+    }
+    .edit-button:hover {
+      background-color: #e0e0e0;
+    }
+  </style>
+</head>
+<body>
+  <div id="loading-message">
+    <p>Cargando lista de proveedores...</p>
+  </div>
+  <div id="error-message" style="display: none;"></div>
+
+  <div id="main-container">
+    <h3>Panel de Notificación</h3>
+    <button class="edit-button" onclick="openAcquisitionEditor()">✏️ Editar Borrador de Adquisiciones</button>
+    <div class="supplier-selector-container">
+      <label for="supplier-selector"><b>1. Selecciona un Proveedor:</b></label>
+      <select id="supplier-selector">
+        <option value="">-- Cargar Proveedores --</option>
+      </select>
+    </div>
+    <div id="order-details">
+      <!-- Los detalles del pedido se mostrarán aquí -->
+    </div>
+  </div>
+
+  <script>
+    const loadingEl = document.getElementById('loading-message');
+    const errorEl = document.getElementById('error-message');
+    const mainEl = document.getElementById('main-container');
+    const supplierSelectorEl = document.getElementById('supplier-selector');
+    const orderDetailsEl = document.getElementById('order-details');
+
+    // --- Step 1: Cargar la lista de proveedores al iniciar ---
+    window.onload = () => {
+      google.script.run
+        .withSuccessHandler(populateSupplierDropdown)
+        .withFailureHandler(showError)
+        .getSupplierList();
+    };
+
+    function populateSupplierDropdown(suppliers) {
+      if (!suppliers || suppliers.length === 0) {
+        showError({ message: "No se encontraron proveedores con pedidos en la 'Lista de Adquisiciones'." });
+        return;
+      }
+
+      loadingEl.style.display = 'none';
+      mainEl.style.display = 'block';
+
+      supplierSelectorEl.innerHTML = '<option value="">-- Selecciona un proveedor --</option>'; // Reset
+      suppliers.forEach(name => {
+        const option = document.createElement('option');
+        option.value = name;
+        option.textContent = name;
+        supplierSelectorEl.appendChild(option);
+      });
+    }
+
+    // --- Step 2: Escuchar cambios en el selector para cargar los pedidos ---
+    supplierSelectorEl.addEventListener('change', () => {
+      const selectedSupplier = supplierSelectorEl.value;
+      orderDetailsEl.innerHTML = ''; // Limpiar detalles anteriores
+      if (!selectedSupplier) {
+        return;
+      }
+
+      orderDetailsEl.innerHTML = '<p>Cargando pedidos para ' + selectedSupplier + '...</p>';
+      google.script.run
+        .withSuccessHandler(renderOrderDetails)
+        .withFailureHandler(showError)
+        .getOrdersForSupplier(selectedSupplier);
+    });
+
+    // --- Step 3: Renderizar los detalles del pedido y el botón ---
+    function renderOrderDetails(data) {
+      if (!data || !data.orders || data.orders.length === 0) {
+        orderDetailsEl.innerHTML = '<p>No se encontraron pedidos para este proveedor.</p>';
+        return;
+      }
+
+      let ordersHtml = '<b>2. Pedido a Enviar:</b><ul id="order-list">';
+      data.orders.forEach(item => {
+        ordersHtml += `<li>- ${item.quantity}: ${item.product} ${item.format}</li>`;
+      });
+      ordersHtml += '</ul>';
+
+      const button = document.createElement('button');
+      button.className = 'whatsapp-button';
+      button.textContent = 'Generar Mensaje de WhatsApp';
+      button.onclick = () => handleGenerateMessage(data);
+      if (!data.phone || data.phone === 'No encontrado') {
+        button.disabled = true;
+        button.title = 'No se encontró el teléfono de este proveedor.';
+      }
+
+      orderDetailsEl.innerHTML = ordersHtml;
+      orderDetailsEl.appendChild(button);
+    }
+
+    function handleGenerateMessage(data) {
+      let message = "¡Hola! Te envío nuestro pedido para hoy:\n";
+      data.orders.forEach(item => {
+        message += `- *${item.quantity}* ${item.product}, ${item.format}\n`;
+      });
+      message += "\n¡Gracias!";
+
+      const encodedMessage = encodeURIComponent(message);
+      const phone = String(data.phone).replace(/[^0-9]/g, '');
+      const whatsappUrl = `https://api.whatsapp.com/send/?phone=${phone}&text=${encodedMessage}`;
+      window.open(whatsappUrl, '_blank');
+    }
+
+    function showError(error) {
+      loadingEl.style.display = 'none';
+      errorEl.textContent = `Error: ${error.message}`;
+      errorEl.style.display = 'block';
+    }
+
+    function openAcquisitionEditor() {
+      // Opcionalmente, mostrar un mensaje mientras se abre el otro diálogo.
+      const originalButtonText = document.querySelector('.edit-button').textContent;
+      document.querySelector('.edit-button').textContent = 'Abriendo...';
+
+      google.script.run
+        .withSuccessHandler(() => {
+          // No es necesario cerrar este diálogo, puede ser útil mantenerlo.
+          // google.script.host.close();
+          document.querySelector('.edit-button').textContent = originalButtonText; // Restaurar texto
+        })
+        .withFailureHandler(error => {
+          showError(error);
+          document.querySelector('.edit-button').textContent = originalButtonText; // Restaurar texto en caso de error
+        })
+        .showAcquisitionEditor();
+    }
+  </script>
+</body>
+</html>
