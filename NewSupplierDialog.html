@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <style>
+    body, html { font-family: Arial, sans-serif; margin: 0; padding: 0; height: 100%; display: flex; flex-direction: column; }
+    .container { padding: 20px; flex-grow: 1; overflow-y: auto; }
+    h3, p { margin: 0 0 15px 0; }
+    table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+    th, td { padding: 8px; border: 1px solid #ddd; text-align: left; font-size: 12px; }
+    th { background-color: #f2f2f2; white-space: nowrap; }
+    td { background-color: #fff; }
+    input[type="text"], input[type="number"] { width: 95%; padding: 6px; border-radius: 4px; border: 1px solid #ccc; box-sizing: border-box; }
+    .product-name-col { width: 20%; font-weight: bold; }
+    .action-col { width: 80px; text-align: center; }
+    button { padding: 5px 10px; border: none; border-radius: 4px; cursor: pointer; background-color: #4CAF50; color: white; }
+    button:disabled { background-color: #ccc; }
+    .footer { padding: 10px 20px; text-align: right; border-top: 1px solid #ddd; background-color: #f9f9f9; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h3>Añadir Nuevos Productos a SKU</h3>
+    <p>Completa la información para todos los productos nuevos encontrados en las órdenes. Haz clic en 'Guardar' en cada fila para procesar el producto.</p>
+    <form id="new-products-form">
+      <table>
+        <thead>
+          <tr>
+            <th class="product-name-col">Nombre Producto</th>
+            <th>Producto Base</th>
+            <th>Formato Adq.</th>
+            <th>Cant. Adq.</th>
+            <th>Unidad Adq.</th>
+            <th>Categoría</th>
+            <th>Cant. Venta</th>
+            <th>Unidad Venta</th>
+            <th class="action-col">Acción</th>
+          </tr>
+        </thead>
+        <tbody id="products-table-body">
+          <!-- Las filas de productos se insertarán aquí dinámicamente -->
+        </tbody>
+      </table>
+    </form>
+  </div>
+  <div class="footer">
+    <button id="close-button" style="background-color: #f44336;">Cerrar</button>
+  </div>
+
+  <script>
+    const tableBody = document.getElementById('products-table-body');
+    const products = JSON.parse(<?!= productData ?>);
+
+    // --- RENDER TABLE ---
+    function renderTable() {
+      let html = '';
+      if (products.length === 0) {
+        tableBody.innerHTML = '<tr><td colspan="9" style="text-align:center;">No se encontraron productos nuevos.</td></tr>';
+        return;
+      }
+
+      products.forEach((p, index) => {
+        html += `
+          <tr id="row-${index}">
+            <td class="product-name-col">${p.nombreProducto}</td>
+            <td><input type="text" id="productoBase-${index}" value="${p.productoBase || ''}" required></td>
+            <td><input type="text" id="formato-${index}" value="${p.formato || ''}" required></td>
+            <td><input type="number" id="cantidad-${index}" value="${p.cantidad || ''}" required></td>
+            <td><input type="text" id="unidad-${index}" value="${p.unidad || ''}" required></td>
+            <td><input type="text" id="categoria-${index}" value="${p.categoria || ''}" required></td>
+            <td><input type="text" id="cantidadVenta-${index}" value="${p.cantidadVenta || ''}" required></td>
+            <td><input type="text" id="unidadVenta-${index}" value="${p.unidadVenta || ''}" required></td>
+            <td class="action-col">
+              <button type="button" class="save-row-btn" data-index="${index}" data-nombre-producto="${p.nombreProducto}">Guardar</button>
+            </td>
+          </tr>
+        `;
+      });
+      tableBody.innerHTML = html;
+    }
+
+    // --- EVENT HANDLERS ---
+    function handleSaveRow(e) {
+      if (!e.target.classList.contains('save-row-btn')) return;
+
+      const button = e.target;
+      const index = button.dataset.index;
+      const row = document.getElementById(`row-${index}`);
+
+      button.disabled = true;
+      button.textContent = '...';
+
+      const productData = {
+        nombreProducto: button.dataset.nombreProducto,
+        productoBase:   document.getElementById(`productoBase-${index}`).value,
+        formato:        document.getElementById(`formato-${index}`).value,
+        cantidad:       document.getElementById(`cantidad-${index}`).value,
+        unidad:         document.getElementById(`unidad-${index}`).value,
+        categoria:      document.getElementById(`categoria-${index}`).value,
+        cantidadVenta:  document.getElementById(`cantidadVenta-${index}`).value,
+        unidadVenta:    document.getElementById(`unidadVenta-${index}`).value,
+      };
+
+      // Basic validation
+      for (const key in productData) {
+        if (productData[key] === '' && key !== 'nombreProducto') {
+           alert(`Por favor, completa todos los campos para "${productData.nombreProducto}".`);
+           button.disabled = false;
+           button.textContent = 'Guardar';
+           return;
+        }
+      }
+
+      google.script.run
+        .withSuccessHandler(() => {
+          row.style.transition = 'opacity 0.5s ease';
+          row.style.opacity = '0';
+          setTimeout(() => {
+            row.remove();
+            if (tableBody.children.length === 0) {
+              google.script.run.withSuccessHandler(() => google.script.host.close()).triggerCategoryDialog();
+            }
+          }, 500);
+        })
+        .withFailureHandler(error => {
+          alert('Error: ' + error.message);
+          button.disabled = false;
+          button.textContent = 'Guardar';
+        })
+        .saveSkuData(productData);
+    }
+
+    // --- INITIALIZATION ---
+    function init() {
+      renderTable();
+      tableBody.addEventListener('click', handleSaveRow);
+      document.getElementById('close-button').addEventListener('click', () => {
+        google.script.host.close();
+      });
+    }
+
+    init();
+  </script>
+</body>
+</html>
