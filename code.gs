@@ -574,6 +574,63 @@ function approveOrderForManagement(orderId) {
   }
 }
 
+function cancelOrder(orderId) {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const ordersSheet = ss.getSheetByName("Orders");
+
+    const ordersData = ordersSheet.getDataRange().getValues();
+    ordersData.shift(); // remove headers
+    const orderIdCol = 0; // Column A
+    const statusCol = 7; // Column H
+
+    let updatedRows = 0;
+    ordersData.forEach((row, index) => {
+      if (String(row[orderIdCol]) === String(orderId)) {
+        ordersSheet.getRange(index + 2, statusCol + 1).setValue("Cancelado");
+        updatedRows++;
+      }
+    });
+
+    if (updatedRows > 0) {
+      SpreadsheetApp.flush();
+      return { status: "success", message: `Pedido #${orderId} cancelado.` };
+    } else {
+      return { status: "error", message: `No se encontró el pedido #${orderId}.` };
+    }
+  } catch (e) {
+    Logger.log(e);
+    return { status: "error", message: e.toString() };
+  }
+}
+
+function deleteOrder(orderId) {
+    try {
+        const ss = SpreadsheetApp.getActiveSpreadsheet();
+        const sheet = ss.getSheetByName('Orders');
+        const data = sheet.getDataRange().getValues();
+        const rowsToDelete = [];
+
+        // Find all rows matching the orderId, starting from the end to avoid shifting issues
+        for (let i = data.length - 1; i >= 1; i--) {
+            if (String(data[i][0]) === String(orderId)) {
+                rowsToDelete.push(i + 1);
+            }
+        }
+
+        if (rowsToDelete.length > 0) {
+            rowsToDelete.forEach(rowNum => sheet.deleteRow(rowNum));
+            SpreadsheetApp.flush();
+            return { status: 'success', message: `Pedido #${orderId} (${rowsToDelete.length} filas) eliminado exitosamente.` };
+        } else {
+            return { status: 'error', message: `No se encontró el pedido #${orderId} para eliminar.` };
+        }
+    } catch (e) {
+        Logger.log(`Error en deleteOrder: ${e.stack}`);
+        return { status: 'error', message: `Ocurrió un error al eliminar el pedido: ${e.message}` };
+    }
+}
+
 
 // --- LÓGICA DE COMANDA RUTAS ---
 
