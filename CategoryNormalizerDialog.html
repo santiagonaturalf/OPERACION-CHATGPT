@@ -107,18 +107,11 @@
 
     // --- SUBMISSION LOGIC ---
     function handleSubmit() {
-      const inputs = form.querySelectorAll('input[type="text"]');
-      for (const input of inputs) {
-        if (input.value.trim() === '') {
-          alert('El nombre de la categoría no puede estar vacío.');
-          return;
-        }
-      }
-
       submitButton.disabled = true;
       submitButton.textContent = 'Guardando...';
 
       const fixes = {};
+      const inputs = form.querySelectorAll('input[type="text"]');
       inputs.forEach(input => {
         const normalizedValue = input.value.trim();
         const originalVariations = JSON.parse(input.dataset.variations);
