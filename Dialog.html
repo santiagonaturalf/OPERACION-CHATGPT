@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <style>
+    body, html {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 20px;
+      background-color: #f9f9f9;
+    }
+    .container {
+      width: 100%;
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    h2 {
+      border-bottom: 2px solid #eee;
+      padding-bottom: 10px;
+    }
+    p {
+      color: #555;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 20px;
+      box-shadow: 0 2px 3px rgba(0,0,0,0.1);
+    }
+    th, td {
+      border: 1px solid #ddd;
+      padding: 10px;
+      text-align: left;
+      vertical-align: middle;
+    }
+    th {
+      background-color: #f2f2f2;
+      font-weight: bold;
+    }
+    tr:nth-child(even) {
+      background-color: #f9f9f9;
+    }
+    td input[type="text"], td input[type="number"] {
+      width: 95%;
+      padding: 6px;
+      border-radius: 4px;
+      border: 1px solid #ccc;
+      box-sizing: border-box;
+    }
+    .product-name {
+      font-weight: bold;
+      color: #333;
+    }
+    .action-button {
+      padding: 8px 12px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      background-color: #4CAF50;
+      color: white;
+      transition: background-color 0.3s;
+    }
+    .action-button:hover {
+      background-color: #45a049;
+    }
+    .action-button:disabled {
+      background-color: #ccc;
+      cursor: not-allowed;
+    }
+    .close-button-container {
+      margin-top: 20px;
+      text-align: right;
+    }
+    #close-button {
+       background-color: #f44336;
+       color: white;
+       padding: 10px 15px;
+       border: none;
+       border-radius: 4px;
+       cursor: pointer;
+    }
+    #close-button:hover {
+      background-color: #e53935;
+    }
+    #no-products-message {
+      text-align: center;
+      padding: 40px;
+      background-color: #fff;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      margin-top: 20px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2>Paso 1: Añadir Nuevos Productos a SKU</h2>
+    <p>Completa la información para todos los productos nuevos encontrados en las órdenes. Haz clic en 'Guardar' en cada fila para procesar el producto.</p>
+
+    <div id="table-container">
+      <table id="product-table">
+        <thead>
+          <tr>
+            <th>Nombre Producto</th>
+            <th>Producto Base</th>
+            <th>Formato Adq.</th>
+            <th>Cant. Adq.</th>
+            <th>Unidad Adq.</th>
+            <th>Categoría</th>
+            <th>Cant. Venta</th>
+            <th>Unidad Venta</th>
+            <th>Acción</th>
+          </tr>
+        </thead>
+        <tbody id="product-table-body">
+          <!-- Rows will be dynamically inserted here by JavaScript -->
+        </tbody>
+      </table>
+    </div>
+
+    <div id="no-products-message" style="display: none;">
+      <h4>No se encontraron nuevos productos para añadir.</h4>
+      <p>Puede que todos los productos de los pedidos recientes ya existan en la hoja SKU.</p>
+    </div>
+
+    <div class="close-button-container">
+       <button id="close-button">Cerrar</button>
+    </div>
+
+    <datalist id="base-product-suggestions">
+      <!-- Options will be dynamically inserted here by JavaScript -->
+    </datalist>
+
+  </div>
+
+  <script>
+    document.getElementById('close-button').addEventListener('click', () => {
+      google.script.host.close();
+    });
+
+    const productList = <?!= productList ?> || [];
+    const baseProducts = <?!= baseProducts ?> || [];
+
+    /**
+     * Populates the datalist for autocomplete suggestions.
+     */
+    function populateSuggestions() {
+      const datalist = document.getElementById('base-product-suggestions');
+      if (baseProducts && baseProducts.length > 0) {
+        baseProducts.forEach(product => {
+          const option = document.createElement('option');
+          option.value = product;
+          datalist.appendChild(option);
+        });
+      }
+    }
+
+    function buildTable() {
+      const tableBody = document.getElementById('product-table-body');
+      const tableContainer = document.getElementById('table-container');
+      const noProductsMessage = document.getElementById('no-products-message');
+
+      if (!productList || productList.length === 0) {
+        tableContainer.style.display = 'none';
+        noProductsMessage.style.display = 'block';
+        return;
+      }
+
+      productList.forEach((productName, index) => {
+        const row = document.createElement('tr');
+        row.id = `product-row-${index}`;
+
+        row.innerHTML = `
+          <td class="product-name">${productName}</td>
+          <td><input type="text" name="productoBase" required list="base-product-suggestions"></td>
+          <td><input type="text" name="formato" placeholder="Ej: Bolsa (1 Kg)" required></td>
+          <td><input type="text" inputmode="decimal" name="cantidad" required></td>
+          <td><input type="text" name="unidad" placeholder="Ej: Kg, Gr" required></td>
+          <td><input type="text" name="categoria" required></td>
+          <td><input type="text" inputmode="decimal" name="cantidadVenta" required></td>
+          <td><input type="text" name="unidadVenta" required></td>
+          <td><button class="action-button" data-index="${index}" data-product-name="${productName}">Guardar</button></td>
+        `;
+        tableBody.appendChild(row);
+      });
+    }
+
+    function handleSaveClick(event) {
+      if (!event.target.classList.contains('action-button')) {
+        return;
+      }
+
+      const button = event.target;
+      const index = button.dataset.index;
+      const productName = button.dataset.productName;
+      const row = document.getElementById(`product-row-${index}`);
+      const inputs = row.querySelectorAll('input[type="text"], input[type="number"]');
+
+      let isValid = true;
+      inputs.forEach(input => {
+        input.style.borderColor = ''; // Reset border color
+        if (!input.value) {
+          isValid = false;
+          input.style.borderColor = 'red';
+        }
+
+        // Add specific validation for the new text-based number fields
+        if (input.name === 'cantidad' || input.name === 'cantidadVenta') {
+          // This regex allows for an integer or a decimal number with a dot or comma.
+          const validNumberRegex = /^[0-9]+([.,][0-9]*)?$/;
+          if (input.value && !validNumberRegex.test(input.value)) {
+            alert(`El valor "${input.value}" no es un número válido.`);
+            isValid = false;
+            input.style.borderColor = 'red';
+          }
+        }
+      });
+
+      if (!isValid) {
+        alert('Por favor, revisa los campos marcados en rojo.');
+        return;
+      }
+
+      button.disabled = true;
+      button.textContent = 'Guardando...';
+
+      const formData = {
+        nombreProducto: productName,
+        productoBase: row.querySelector('input[name="productoBase"]').value,
+        formato: row.querySelector('input[name="formato"]').value,
+        cantidad: row.querySelector('input[name="cantidad"]').value.replace('.', ','),
+        unidad: row.querySelector('input[name="unidad"]').value,
+        categoria: row.querySelector('input[name="categoria"]').value,
+        cantidadVenta: row.querySelector('input[name="cantidadVenta"]').value.replace('.', ','),
+        unidadVenta: row.querySelector('input[name="unidadVenta"]').value,
+      };
+
+      google.script.run
+        .withSuccessHandler(() => {
+          button.textContent = 'Guardado';
+          row.style.backgroundColor = '#e8f5e9';
+          inputs.forEach(input => {
+            input.disabled = true;
+          });
+        })
+        .withFailureHandler(error => {
+          alert(`Error al guardar "${productName}":\n${error.message}`);
+          button.disabled = false;
+          button.textContent = 'Guardar';
+        })
+        .saveSkuData(formData);
+    }
+
+    document.getElementById('product-table-body').addEventListener('click', handleSaveClick);
+
+    window.addEventListener('load', () => {
+      buildTable();
+      populateSuggestions();
+    });
+  </script>
+</body>
+</html>
