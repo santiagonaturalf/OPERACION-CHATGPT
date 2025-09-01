@@ -37,10 +37,6 @@ function onOpen() {
     .addItem('💰 Importar Movimientos', 'showImportMovementsDialog')
     .addItem('📦 Importar Pedidos (Pegar)', 'showPasteImportDialog')
     .addItem('📊 Conciliar Ingresos (Ventas)', 'showConciliationDialog')
-    .addItem('🛒 Conciliar Egresos (Compras)', 'showExpenseConciliationDialog')
-    .addSeparator()
-    .addItem('🔧 Formatear Teléfonos en Hoja Orders', 'formatPhoneNumbersInOrdersSheet')
-    .addItem('🔧 Formatear Hoja de Costos', 'formatCostosVentaSheet')
     .addToUi();
 }
 
@@ -1044,10 +1040,6 @@ function showConciliationDialog() {
     .setWidth(1000)
     .setHeight(700);
   SpreadsheetApp.getUi().showModalDialog(html, 'Conciliar Ingresos de Ventas');
-}
-
-function showExpenseConciliationDialog() {
-  SpreadsheetApp.getUi().alert("Este módulo (Conciliar Egresos) será implementado en un próximo paso.");
 }
 
 function getReconciliationData() {
@@ -3225,41 +3217,6 @@ function importOrdersFromXLSX(fileId) {
   }
 }
 
-function formatPhoneNumbersInOrdersSheet() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName("Orders");
-  if (!sheet) {
-    SpreadsheetApp.getUi().alert("No se encontró la hoja 'Orders'.");
-    return;
-  }
-
-  const phoneColumn = 4; // Column D
-  const lastRow = sheet.getLastRow();
-  if (lastRow < 2) {
-    SpreadsheetApp.getUi().alert("No hay datos para formatear en la hoja 'Orders'.");
-    return;
-  }
-
-  const phoneRange = sheet.getRange(2, phoneColumn, lastRow - 1, 1);
-  const phoneValues = phoneRange.getValues();
-
-  let changedCount = 0;
-  const formattedPhones = phoneValues.map(row => {
-    const originalPhone = row[0];
-    if (!originalPhone) return [originalPhone];
-
-    const formatted = normalizePhoneNumber(originalPhone);
-    if (formatted !== originalPhone) {
-      changedCount++;
-    }
-    return [formatted];
-  });
-
-  phoneRange.setValues(formattedPhones);
-
-  SpreadsheetApp.getUi().alert(`Proceso completado. Se revisaron ${phoneValues.length} números. Se corrigieron ${changedCount} números de teléfono.`);
-}
-
 /**
  * Crea o actualiza los disparadores de tiempo necesarios para el proyecto.
  */
@@ -3287,39 +3244,5 @@ function setupTriggers() {
     Logger.log(`Disparador diario para '${functionName}' creado.`);
   } else {
     Logger.log(`El disparador para '${functionName}' ya existe.`);
-  }
-}
-
-/**
- * Aplica el formato de fecha y moneda a la hoja 'CostosVenta'.
- */
-function formatCostosVentaSheet() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName("CostosVenta");
-  const ui = SpreadsheetApp.getUi();
-
-  if (!sheet) {
-    ui.alert("No se encontró la hoja 'CostosVenta'.");
-    return;
-  }
-
-  try {
-    const lastRow = sheet.getLastRow();
-    if (lastRow < 2) {
-      // No mostrar alerta si la hoja está vacía, simplemente no hacer nada.
-      Logger.log("La hoja 'CostosVenta' no tiene datos para formatear.");
-      return;
-    }
-
-    // Formatear Columna A (Fecha) como DD/MM/YYYY
-    sheet.getRange(2, 1, lastRow - 1, 1).setNumberFormat("dd/MM/yyyy");
-
-    // Formatear Columna C (Costo Adquisicion) como CLP
-    sheet.getRange(2, 3, lastRow - 1, 1).setNumberFormat("$ #,##0");
-
-    ui.alert("Se ha aplicado el formato a la hoja 'CostosVenta' con éxito.");
-  } catch (e) {
-    Logger.log(`Error al formatear la hoja CostosVenta: ${e.message}`);
-    ui.alert(`Ocurrió un error al aplicar el formato: ${e.message}`);
   }
 }

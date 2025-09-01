@@ -59,7 +59,6 @@
   <div class="action-grid">
     <button id="import-btn" class="action-button">💰 Importar Movimientos Bancarios</button>
     <button id="reconcile-income-btn" class="action-button">📊 Conciliar Ingresos (Ventas)</button>
-    <button id="reconcile-expense-btn" class="action-button">🛒 Conciliar Egresos (Compras)</button>
   </div>
   <script>
     document.getElementById('import-btn').addEventListener('click', () => {
@@ -72,12 +71,6 @@
         google.script.run
             .withSuccessHandler(() => google.script.host.close())
             .showConciliationDialog();
-    });
-
-    document.getElementById('reconcile-expense-btn').addEventListener('click', () => {
-        google.script.run
-            .withSuccessHandler(() => google.script.host.close())
-            .showExpenseConciliationDialog();
     });
   </script>
 </body>
