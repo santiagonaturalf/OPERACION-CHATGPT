@@ -73,7 +73,6 @@
                 <button id="packaging-btn" class="action-button">▶️ Iniciar Proceso de Envasado</button>
                 <button id="acq-btn" class="action-button">📝 Generar Borrador de Adquisiciones</button>
                 <button id="notify-btn" class="action-button">📲 Notificar a Proveedores</button>
-                <button id="finance-btn" class="action-button" style="background-color: #ffc107; color: black;">💲 Gestionar Finanzas</button>
             </div>
         </div>
         <div id="status-log">Bienvenido.</div>
@@ -171,7 +170,6 @@
         google.script.run.withSuccessHandler(() => setLoadingState(false)).withFailureHandler(handleError).showAcquisitionEditor();
     });
     document.getElementById('notify-btn').addEventListener('click', () => google.script.run.startNotificationProcess());
-    document.getElementById('finance-btn').addEventListener('click', () => google.script.run.showFinanceDashboard());
 
     function handleSuccess(message) {
         setLoadingState(false, message);
