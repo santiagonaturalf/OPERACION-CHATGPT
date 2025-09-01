@@ -1166,11 +1166,11 @@ function getReconciliationData() {
 // --- LÓGICA DEL DASHBOARD ---
 
 function showDashboard() {
-  updateAcquisitionListAutomated(); // Actualiza la lista de adquisiciones automáticamente
-  const html = HtmlService.createHtmlOutputFromFile('LauncherDialog')
-    .setWidth(400)
-    .setHeight(250);
-  SpreadsheetApp.getUi().showModalDialog(html, 'Abrir Dashboard');
+  updateAcquisitionListAutomated();
+  const html = HtmlService.createHtmlOutputFromFile('DashboardDialog')
+    .setWidth(1200)
+    .setHeight(800);
+  SpreadsheetApp.getUi().showModalDialog(html, 'Dashboard de Operaciones');
 }
 
 // --- FUNCIONES DE LA APLICACIÓN WEB ---
