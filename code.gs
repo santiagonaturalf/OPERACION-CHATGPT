@@ -638,108 +638,103 @@ function showComandaRutasDialog() {
   SpreadsheetApp.getUi().showModalDialog(html, 'Comanda Rutas');
 }
 
+/**
+ * Returns unique orders (one row per order number) for the routing step.
+ */
 function getOrdersForRouting() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const ordersSheet = ss.getSheetByName('Orders');
-  if (!ordersSheet) {
-    throw new Error('No se encontró la hoja "Orders".');
-  }
-
-  const lastRow = ordersSheet.getLastRow();
-  if (lastRow < 2) return [];
-
-  // Expand range to read up to the last column to dynamically find 'Furgón'
-  const dataRange = ordersSheet.getRange(2, 1, lastRow - 1, ordersSheet.getLastColumn());
-  const values = dataRange.getValues();
-  const headers = ordersSheet.getRange(1, 1, 1, ordersSheet.getLastColumn()).getValues()[0];
-  const vanColumnIndex = headers.indexOf('Furgón');
-
-  const uniqueOrders = {};
-  values.forEach((row) => {
-    const orderId = row[0];
-    if (orderId && !uniqueOrders[orderId]) {
-      uniqueOrders[orderId] = {
-        orderNumber: orderId,
-        customerName: row[1] || '',
-        phone: row[3] || '',
-        address: row[4] || '',
-        department: row[5] || '',
-        commune: row[6] || '',
-        status: row[7] || '',
-        van: vanColumnIndex !== -1 ? (row[vanColumnIndex] || '') : ''
-      };
-    }
+  const sheet = SpreadsheetApp.getActive().getSheetByName('Orders');
+  if (!sheet) throw new Error('No se encontró la hoja "Orders".');
+  const data = sheet.getDataRange().getValues();
+  const headers = data.shift();
+  const idx = indexer(headers);
+  const unique = new Map();
+  data.forEach(row => {
+    const id = String(row[idx.numPedido] || '').trim();
+    if (!id || unique.has(id)) return;
+    unique.set(id, {
+      orderNumber: id,
+      customerName: row[idx.nombre] || '',
+      phone: row[idx.telefono] || '',
+      address: row[idx.direccion] || '',
+      department: row[idx.depto] || '',
+      commune: row[idx.comuna] || '',
+      status: row[idx.estado] || '',
+      van: row[idx.furgon] || ''
+    });
   });
-
-  return Object.values(uniqueOrders);
+  return [...unique.values()];
 }
 
-function saveSingleOrderChange(orderData) {
-  try {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const ordersSheet = ss.getSheetByName('Orders');
-    if (!ordersSheet) {
-      throw new Error('No se encontró la hoja "Orders".');
+/**
+ * Saves changes for a single order number across all matching rows.
+ */
+function saveSingleOrderChange(order) {
+  const sheet = SpreadsheetApp.getActive().getSheetByName('Orders');
+  const data = sheet.getDataRange().getValues();
+  const headers = data[0];
+  const idx = indexer(headers);
+  const ops = [];
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][idx.numPedido]) === String(order.orderNumber)) {
+      const r = i + 1;
+      if (idx.direccion >= 0) ops.push(() => sheet.getRange(r, idx.direccion + 1).setValue(order.address || ''));
+      if (idx.depto     >= 0) ops.push(() => sheet.getRange(r, idx.depto + 1).setValue(order.department || ''));
+      if (idx.comuna    >= 0) ops.push(() => sheet.getRange(r, idx.comuna + 1).setValue(order.commune || ''));
+      if (idx.furgon    >= 0) ops.push(() => sheet.getRange(r, idx.furgon + 1).setValue(order.van || ''));
+      if (idx.telefono  >= 0) ops.push(() => sheet.getRange(r, idx.telefono + 1).setValue(order.phone || ''));
     }
-
-    const headers = ordersSheet.getRange(1, 1, 1, ordersSheet.getLastColumn()).getValues()[0];
-    const vanHeader = 'Furgón';
-    let vanColumn = headers.indexOf(vanHeader) + 1;
-    if (vanColumn === 0) {
-      vanColumn = ordersSheet.getLastColumn() + 1;
-      ordersSheet.getRange(1, vanColumn).setValue(vanHeader).setFontWeight('bold');
-    }
-
-    const orderNumbers = ordersSheet.getRange("A2:A" + ordersSheet.getLastRow()).getValues().flat().map(String);
-    const rowIndex = orderNumbers.indexOf(String(orderData.orderNumber));
-
-    if (rowIndex === -1) {
-      Logger.log(`No se encontró el pedido #${orderData.orderNumber} para el auto-guardado.`);
-      return { status: 'warning', message: `No se encontró el pedido ${orderData.orderNumber}.` };
-    }
-
-    const row = rowIndex + 2;
-    ordersSheet.getRange(row, 5).setValue(orderData.address);
-    ordersSheet.getRange(row, 6).setValue(orderData.department);
-    ordersSheet.getRange(row, 7).setValue(orderData.commune);
-    ordersSheet.getRange(row, vanColumn).setValue(orderData.van);
-
-    return { status: 'success', message: `Pedido #${orderData.orderNumber} guardado.` };
-  } catch (e) {
-    Logger.log(e);
-    return { status: 'error', message: e.toString() };
   }
+  ops.forEach(fn => fn());
+  SpreadsheetApp.flush();
+  return { status: 'success', message: `Guardado #${order.orderNumber}` };
 }
 
-function saveRouteChanges(updatedOrders) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const ordersSheet = ss.getSheetByName('Orders');
-  if (!ordersSheet) {
-    throw new Error('No se encontró la hoja "Orders".');
+/**
+ * Saves multiple orders in a batch, updating all rows for each order number.
+ */
+function saveRouteChanges(orders) {
+  const sheet = SpreadsheetApp.getActive().getSheetByName('Orders');
+  const data = sheet.getDataRange().getValues();
+  const headers = data[0];
+  const idx = indexer(headers);
+  const rowsById = new Map();
+  for (let i = 1; i < data.length; i++) {
+    const id = String(data[i][idx.numPedido] || '');
+    if (!id) continue;
+    if (!rowsById.has(id)) rowsById.set(id, []);
+    rowsById.get(id).push(i + 1);
   }
-
-  const headers = ordersSheet.getRange(1, 1, 1, ordersSheet.getLastColumn()).getValues()[0];
-  const vanHeader = 'Furgón';
-  let vanColumn = headers.indexOf(vanHeader) + 1;
-  if (vanColumn === 0) {
-    vanColumn = ordersSheet.getLastColumn() + 1;
-    ordersSheet.getRange(1, vanColumn).setValue(vanHeader).setFontWeight('bold');
-  }
-
-  const allOrderNumbers = ordersSheet.getRange("A2:A" + ordersSheet.getLastRow()).getValues().flat().map(String);
-
-  updatedOrders.forEach(order => {
-    const rowIndex = allOrderNumbers.indexOf(String(order.orderNumber));
-    if (rowIndex !== -1) {
-      const row = rowIndex + 2;
-      ordersSheet.getRange(row, 5).setValue(order.address);
-      ordersSheet.getRange(row, 6).setValue(order.department);
-      ordersSheet.getRange(row, 7).setValue(order.commune);
-      ordersSheet.getRange(row, vanColumn).setValue(order.van);
-    }
+  const ops = [];
+  orders.forEach(o => {
+    (rowsById.get(String(o.orderNumber)) || []).forEach(r => {
+      if (idx.direccion >= 0) ops.push(() => sheet.getRange(r, idx.direccion + 1).setValue(o.address || ''));
+      if (idx.depto     >= 0) ops.push(() => sheet.getRange(r, idx.depto + 1).setValue(o.department || ''));
+      if (idx.comuna    >= 0) ops.push(() => sheet.getRange(r, idx.comuna + 1).setValue(o.commune || ''));
+      if (idx.furgon    >= 0) ops.push(() => sheet.getRange(r, idx.furgon + 1).setValue(o.van || ''));
+      if (idx.telefono  >= 0) ops.push(() => sheet.getRange(r, idx.telefono + 1).setValue(o.phone || ''));
+    });
   });
+  ops.forEach(fn => fn());
+  SpreadsheetApp.flush();
+  return { status: 'success', message: `Se guardaron ${orders.length} pedido(s).` };
+}
 
-  return { status: 'success', message: 'Cambios guardados con éxito.' };
+/**
+ * Column index helper (supports multiple synonyms for column headings). Update synonyms as needed.
+ */
+function indexer(headers) {
+  const norm = s => String(s || '').toLowerCase().trim();
+  const idxOf = (...names) => headers.findIndex(h => names.includes(norm(h)));
+  return {
+    numPedido: idxOf('número de pedido','numero de pedido','nº pedido','n° pedido','n pedido','número de ped'),
+    nombre:    idxOf('nombre completo','cliente','nombre','nombre y apellido'),
+    telefono:  idxOf('teléfono','telefono','phone','tel'),
+    direccion: idxOf('dirección','direccion','shipping address','dirección líneas 1','direccion lineas 1'),
+    depto:     idxOf('depto.','depto','departamento','depto/condominio','depto/condomi','dirección líneas 2','direccion lineas 2'),
+    comuna:    idxOf('comuna','shipping region','ciudad'),
+    estado:    idxOf('estado','estado del pago'),
+    furgon:    idxOf('furgón','furgon','van','furgón asignado')
+  };
 }
 
 function processRouteXLData(pastedText, vanName) {
