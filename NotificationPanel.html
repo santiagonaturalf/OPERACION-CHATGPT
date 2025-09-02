@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <base target="_top">
+  <style>
+    :root { --b:#0b57d0; --g:#188038; --bg:#fafafa; }
+    body { font-family: Arial, sans-serif; margin:0; background: var(--bg); }
+    header { padding:12px 16px; border-bottom:1px solid #e6e6e6; background:#fff; position:sticky; top:0; z-index:2;}
+    header h2 { margin:0; font-size:16px; }
+    .wrap { padding: 12px 12px 120px; }
+    .toolbar { display:flex; gap:8px; align-items:center; margin:8px 0 12px; }
+    .toolbar input[type="text"] { flex:1; padding:8px 10px; border:1px solid #ddd; border-radius:8px; }
+    .accordion { border-radius:12px; overflow:hidden; border:1px solid #e8e8e8; background:#fff; }
+    .accordion + .accordion { margin-top:10px; }
+    summary { list-style:none; cursor:pointer; padding:12px; display:flex; align-items:center; gap:10px; }
+    summary::-webkit-details-marker{ display:none; }
+    .prov-title { font-weight:600; flex:1; }
+    .phone { display:flex; gap:6px; align-items:center; }
+    .phone input { width:160px; padding:6px 8px; border:1px solid #ddd; border-radius:8px; }
+    .btn { border:none; padding:8px 12px; border-radius:10px; cursor:pointer; }
+    .btn.save { background:#eef4ff; color:#0b57d0; }
+    .btn.gen  { background:#e8f0fe; color:#0b57d0; }
+    .btn.copy { background:#e6f4ea; color:#188038; }
+    .btn.open { background:#fffbea; color:#8a6d00; }
+    .items { padding:12px; border-top:1px dashed #eee; }
+    .item-header { display:grid; grid-template-columns: 24px 1fr 100px 100px 120px 100px; gap:8px; font-weight:bold; font-size:12px; color:#555; padding:4px 0; border-bottom: 1px solid #ddd; margin-bottom: 4px; }
+    .item { display:grid; grid-template-columns: 24px 1fr 100px 100px 120px 100px; gap:8px; align-items:center; padding:6px 0; }
+    .item + .item { border-top:1px dotted #f0f0f0; }
+    .item label, .item .inv-data { font-size:13px; }
+    .qty { display:flex; align-items:center; gap:6px; }
+    .qty input { width:80px; padding:6px 8px; border:1px solid #ddd; border-radius:8px; }
+    .pres { font-size:12px; color:#555; }
+    .footer { position:sticky; bottom:0; background:#fff; border-top:1px solid #eee; padding:10px; display:flex; gap:8px; flex-wrap:wrap; }
+    .muted { color:#666; font-size:12px; margin-left:auto; }
+    .tag { background:#f1f3f4; padding:2px 8px; border-radius:999px; font-size:12px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h2>Panel de Notificación a Proveedores</h2>
+  </header>
+
+  <div class="wrap">
+    <div class="toolbar">
+      <input id="search" type="text" placeholder="Filtrar proveedor o producto..." />
+      <span id="summaryCount" class="tag">0 seleccionados</span>
+    </div>
+    <div id="list"></div>
+  </div>
+
+  <div class="footer">
+    <button id="btnGen" class="btn gen" disabled>Generar link de WhatsApp</button>
+    <button id="btnCopy" class="btn copy" disabled>Copiar link</button>
+    <button id="btnOpen" class="btn open" disabled>Abrir link</button>
+    <span id="status" class="muted"></span>
+  </div>
+
+  <script>
+    function debounce(func, wait) {
+      let timeout;
+      return function executedFunction(...args) {
+        const later = () => {
+          clearTimeout(timeout);
+          func(...args);
+        };
+        clearTimeout(timeout);
+        timeout = setTimeout(later, wait);
+      };
+    }
+
+    let STATE = { providers: [], lastLink: null };
+
+    const $  = (s, r=document) => r.querySelector(s);
+    const $$ = (s, r=document) => Array.from(r.querySelectorAll(s));
+
+    function setStatus(msg){ $('#status').textContent = msg || ''; }
+    function updateCounter(){
+      const n = STATE.providers.reduce((acc,p)=>acc+p.items.filter(i=>i.checked).length,0);
+      $('#summaryCount').textContent = `${n} seleccionados`;
+      $('#btnGen').disabled = n === 0;
+    }
+
+    function render(){
+      const root = $('#list'); root.innerHTML = '';
+      const q = ($('#search').value||'').toLowerCase();
+
+      STATE.providers.forEach(prov=>{
+        const hitProv = prov.name.toLowerCase().includes(q) ||
+                        prov.items.some(i=>i.name.toLowerCase().includes(q));
+        if(!hitProv) return;
+
+        const det = document.createElement('details'); det.className='accordion';
+        const sum = document.createElement('summary');
+
+        // --- Master Checkbox for Provider ---
+        const masterCb = document.createElement('input');
+        masterCb.type = 'checkbox';
+        masterCb.style.marginRight = '8px';
+        const numSelected = prov.items.filter(it => it.checked).length;
+        if (prov.items.length > 0) {
+            if (numSelected === prov.items.length) {
+                masterCb.checked = true;
+                masterCb.indeterminate = false;
+            } else if (numSelected === 0) {
+                masterCb.checked = false;
+                masterCb.indeterminate = false;
+            } else {
+                masterCb.checked = false;
+                masterCb.indeterminate = true;
+            }
+        } else {
+            masterCb.disabled = true;
+        }
+        masterCb.addEventListener('click', (e) => {
+            prov.items.forEach(it => {
+                it.checked = e.currentTarget.checked;
+            });
+            render();
+        });
+        sum.append(masterCb);
+        // --- End Master Checkbox ---
+
+        const title = document.createElement('div'); title.className='prov-title'; title.textContent = prov.name;
+
+        const phone = document.createElement('div'); phone.className='phone';
+        const phoneInp = document.createElement('input'); phoneInp.placeholder='Teléfono'; phoneInp.value = prov.phone||'';
+        phoneInp.addEventListener('input',()=>{ prov.phone = phoneInp.value; });
+
+        const saveBtn = document.createElement('button'); saveBtn.className='btn save'; saveBtn.textContent='Guardar teléfono';
+        saveBtn.addEventListener('click', (ev)=>{
+          ev.preventDefault(); saveBtn.disabled=true; setStatus('Guardando teléfono…');
+          google.script.run.withSuccessHandler(()=>{
+            setStatus('Teléfono guardado.'); saveBtn.disabled=false;
+          }).withFailureHandler(err=>{
+            setStatus('Error: '+err.message); saveBtn.disabled=false;
+          }).api_updateProviderPhone(prov.name, phoneInp.value);
+        });
+
+        phone.append(phoneInp, saveBtn);
+        sum.append(title, phone);
+        det.append(sum);
+
+        const items = document.createElement('div'); items.className='items';
+
+        if (prov.items.length > 0) {
+            const header = document.createElement('div');
+            header.className = 'item-header';
+            header.innerHTML = `
+                <div></div>
+                <div>Producto</div>
+                <div>Inv. Actual</div>
+                <div>Nec. Venta</div>
+                <div>Cant. a Comprar</div>
+                <div>Inv. al Finalizar</div>
+            `;
+            items.append(header);
+        }
+
+        prov.items.forEach(it=>{
+          const row = document.createElement('div'); row.className='item';
+          const cb  = document.createElement('input'); cb.type='checkbox'; cb.checked=!!it.checked;
+          cb.addEventListener('change',()=>{ it.checked = cb.checked; render(); });
+
+          const label = document.createElement('label');
+          label.innerHTML = `<strong>${it.name}</strong><div class="pres">${it.presentation||''}</div>`;
+
+          const qty = document.createElement('div'); qty.className='qty';
+          const qtyInp = document.createElement('input'); qtyInp.type='number'; qtyInp.min='0'; qtyInp.step='1';
+          qtyInp.value = it.qty||1;
+
+          const invActualEl = document.createElement('div');
+          invActualEl.className = 'inv-data';
+          invActualEl.textContent = `${it.currentInventory} ${it.unit || ''}`;
+
+          const salesNeedEl = document.createElement('div');
+          salesNeedEl.className = 'inv-data';
+          salesNeedEl.textContent = `${it.salesNeed} ${it.unit || ''}`;
+
+          const invFinalEl = document.createElement('div');
+          invFinalEl.className = 'inv-data';
+
+          function updateFinalInventory() {
+            const formatSize = parseFormatSize(it.presentation);
+            const purchasedAmount = (parseFloat(qtyInp.value) || 0) * formatSize;
+            const finalInventory = (it.currentInventory || 0) + purchasedAmount - (it.salesNeed || 0);
+            invFinalEl.textContent = `${finalInventory.toFixed(1)} ${it.unit || ''}`;
+          }
+
+          const debouncedSave = debounce((productName, newQty) => {
+            setStatus('Guardando cantidad...');
+            google.script.run
+              .withSuccessHandler(res => setStatus('Cantidad guardada.'))
+              .withFailureHandler(err => setStatus(`Error: ${err.message}`))
+              .api_updatePurchaseQuantity(productName, newQty);
+          }, 750);
+
+          qtyInp.addEventListener('input',()=>{
+            const newQty = parseFloat(qtyInp.value||0);
+            it.qty = newQty;
+            updateFinalInventory();
+            debouncedSave(it.name, newQty);
+          });
+
+          qty.append(qtyInp);
+
+          row.append(cb, label, invActualEl, salesNeedEl, qty, invFinalEl);
+          items.append(row);
+          updateFinalInventory(); // Calculate on initial render
+        });
+
+        det.append(items);
+        root.append(det);
+      });
+
+      updateCounter();
+    }
+
+    function parseFormatSize(formatStr) {
+        if (!formatStr) return 1;
+        const match = formatStr.match(/\(([\d.,]+)/);
+        if (!match || !match[1]) return 1;
+        const cleaned = match[1].replace(/\./g, '').replace(',', '.');
+        const size = parseFloat(cleaned);
+        return isNaN(size) || size === 0 ? 1 : size;
+    }
+
+    function load(){
+      setStatus('Cargando…');
+      google.script.run.withSuccessHandler(data=>{
+        STATE.providers = (data.providers||[]).map(p=>({
+          ...p, items: (p.items||[]).map(it=>({...it, qty: it.qty||1, checked: it.qty > 0 }))
+        }));
+        setStatus(''); render();
+      }).withFailureHandler(err=> setStatus('Error: '+err.message))
+        .api_getPanelData();
+    }
+
+    function generateLink(){
+      const provs = STATE.providers.map(p=>({...p, selected:p.items.filter(x=>x.checked)}))
+                                   .filter(p=>p.selected.length>0);
+      if(provs.length === 0) return setStatus('Selecciona productos.');
+      if(provs.length > 1)   return setStatus('Selecciona productos de un solo proveedor a la vez.');
+
+      const prov = provs[0];
+      if(!prov.phone || !prov.phone.trim()) return setStatus('Completa el teléfono del proveedor.');
+
+      setStatus('Generando link…');
+      const payload = prov.selected.map(i=>({name:i.name, qty:i.qty, presentation:i.presentation}));
+      google.script.run.withSuccessHandler(link=>{
+        STATE.lastLink = link;
+        $('#btnCopy').disabled = false;
+        $('#btnOpen').disabled = false;
+        setStatus('Link listo.');
+      }).withFailureHandler(err=> setStatus('Error: '+err.message))
+        .api_buildWhatsappLink(prov.phone, prov.name, payload);
+    }
+
+    function copyLink(){
+      if(!STATE.lastLink) return;
+      navigator.clipboard.writeText(STATE.lastLink).then(()=> setStatus('Link copiado.'));
+    }
+    function openLink(){
+      if(!STATE.lastLink) return;
+      // Abrimos en el cliente (evita “colapsos” desde el servidor).
+      window.open(STATE.lastLink, '_blank', 'noopener');
+    }
+
+    window.addEventListener('DOMContentLoaded', ()=>{
+      $('#search').addEventListener('input', render);
+      $('#btnGen').addEventListener('click', generateLink);
+      $('#btnCopy').addEventListener('click', copyLink);
+      $('#btnOpen').addEventListener('click', openLink);
+      load();
+    });
+  </script>
+</body>
+</html>

@@ -238,13 +238,25 @@
     });
 
     function handleSaveSuccess(response) {
+      setLoadingState(false, '¡Guardado! Listo para notificar.');
       alert(response.message);
-      setLoadingState(true, 'Guardado. Abriendo panel de notificación...');
-      // Iniciar el siguiente paso del flujo de trabajo
-      google.script.run
-        .withSuccessHandler(() => google.script.host.close())
-        .withFailureHandler(handleError)
-        .startNotificationProcess();
+
+      // Repurpose the save button to open the notification panel
+      const saveBtn = document.getElementById('save-btn');
+      saveBtn.textContent = 'Ir al Panel de Notificación';
+
+      // Remove old listener to prevent re-saving, then get a reference to the new button
+      const newSaveBtn = saveBtn.cloneNode(true);
+      saveBtn.parentNode.replaceChild(newSaveBtn, saveBtn);
+
+      // Add new listener to the new button
+      newSaveBtn.addEventListener('click', () => {
+        setLoadingState(true, 'Abriendo notificaciones...');
+        google.script.run
+          .withSuccessHandler(() => google.script.host.close())
+          .withFailureHandler(handleError)
+          .openNotificationPanel(); // Call the correct new function
+      });
     }
 
     function handleError(error) {
