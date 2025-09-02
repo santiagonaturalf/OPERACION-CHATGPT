@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top" />
+  <meta charset="utf-8" />
+  <style>
+    :root { --bg:#fafafa; --muted:#6b7280; --line:#e5e7eb; --pill:#eef2ff; --accent:#2563eb; --ok:#16a34a; --warn:#f59e0b; }
+    * { box-sizing: border-box; }
+    body { font-family: Inter, system-ui, Arial, sans-serif; margin:0; background:var(--bg); color:#0f172a; }
+    header.toolbar {
+      position: sticky; top:0; z-index: 10; background:#fff; border-bottom:1px solid var(--line);
+      display:flex; gap:8px; align-items:center; padding:10px 12px;
+    }
+    header.toolbar h3 { margin:0; font-size:14px; font-weight:600; color:#111827; }
+    header.toolbar .spacer { flex:1; }
+    header.toolbar input[type="search"] {
+      width: 100%; max-width: 220px; padding:6px 8px; border:1px solid var(--line); border-radius:8px;
+    }
+    button.btn { border:1px solid var(--line); background:#fff; padding:6px 10px; border-radius:8px; cursor:pointer; }
+    button.primary { background:var(--accent); color:#fff; border-color:var(--accent); }
+    button.ghost { background:#fff; color:#111827; }
+    button.btn:disabled { opacity:.6; cursor:not-allowed; }
+
+    .wrap { padding: 10px 12px 80px; }
+    .accordion { display:flex; flex-direction:column; gap:8px; }
+
+    .cat {
+      background:#fff; border:1px solid var(--line); border-radius:12px; overflow:hidden;
+      box-shadow: 0 1px 0 rgba(0,0,0,.02);
+    }
+    .cat > .head {
+      display:grid; grid-template-columns: auto 1fr auto auto; gap:8px; align-items:center;
+      padding:10px 12px;
+      cursor: pointer;
+    }
+    .cat .chk { margin:0 6px 0 0; }
+    .cat .title { font-weight:600; }
+    .cat .pill {
+      background:var(--pill); color:#3730a3; padding:2px 8px; border-radius:999px; font-size:12px;
+    }
+    .cat .toggle { font-size:12px; color:var(--muted); }
+
+    .cat .body { display:none; border-top:1px solid var(--line); }
+    .cat.open .body { display:block; }
+    .body table { width:100%; border-collapse: collapse; }
+    .body thead th {
+      text-align:left; font-size:12px; color:#374151; font-weight:600; padding:8px 12px; background:#f8fafc; border-bottom:1px solid var(--line);
+      position: sticky; top:42px; z-index:5;
+    }
+    .body tbody td { padding:8px 12px; border-bottom:1px solid var(--line); vertical-align: middle; }
+    .row-actions { display:flex; gap:6px; justify-content:flex-end; }
+    .tag { font-size:12px; color:#374151; background:#f3f4f6; border:1px solid var(--line); padding:2px 6px; border-radius:999px; }
+
+    .edit-pop {
+      display:none; position:fixed; inset:auto 12px 12px 12px; background:#fff; border:1px solid var(--line); border-radius:12px;
+      padding:12px; box-shadow:0 8px 40px rgba(0,0,0,.12); z-index:50;
+    }
+    .edit-pop.open { display:block; }
+    .edit-pop h4 { margin:0 0 8px; font-size:14px; }
+    .edit-pop .row { display:flex; gap:8px; align-items:center; margin:8px 0; }
+    .edit-pop select, .edit-pop input[type="text"] { flex:1; padding:8px; border:1px solid var(--line); border-radius:8px; }
+    .edit-pop .ft { display:flex; justify-content:flex-end; gap:8px; margin-top:10px; }
+    footer.actionbar {
+      position: fixed; left:0; right:0; bottom:0; background:#fff; border-top:1px solid var(--line);
+      padding:10px 12px; display:flex; gap:8px; justify-content:flex-end;
+    }
+  </style>
+</head>
+<body>
+  <header class="toolbar">
+    <h3>Seleccionar categorías para envasado</h3>
+    <div class="spacer"></div>
+    <input id="q" type="search" placeholder="Buscar producto…" />
+    <button id="btnAll" class="btn ghost">Seleccionar todo</button>
+    <button id="btnNone" class="btn ghost">Deseleccionar</button>
+  </header>
+
+  <div class="wrap">
+    <div id="status" style="color:var(--muted); font-size:13px; padding:4px 2px;">Cargando…</div>
+    <div id="accordion" class="accordion" aria-live="polite"></div>
+  </div>
+
+  <footer class="actionbar">
+    <button id="btnGen" class="btn primary">Generar lista</button>
+  </footer>
+
+  <!-- Popup edición -->
+  <div id="editPop" class="edit-pop" role="dialog" aria-modal="true" aria-labelledby="editTitle">
+    <h4 id="editTitle">Editar categoría del producto</h4>
+    <div class="row">
+      <label style="min-width:110px;">Producto</label>
+      <div id="editName" class="tag"></div>
+    </div>
+    <div class="row">
+      <label style="min-width:110px;">Categoría</label>
+      <select id="editCatSel"></select>
+    </div>
+    <div class="ft">
+      <button id="btnCancel" class="btn ghost">Cancelar</button>
+      <button id="btnSave" class="btn">Guardar</button>
+    </div>
+  </div>
+
+<script>
+/* ---------- Estado ---------- */
+let DATA = {};            // { "Fruta": {count, products:{ "Manzana": 12, ... }} , ...}
+let SELECTED = new Set(); // Categorías marcadas
+let ALL_CATEGORIES = [];  // Para el selector de edición
+let CURRENT_EDIT = { name: null, cat: null };
+
+/* ---------- Utilidades ---------- */
+const $ = sel => document.querySelector(sel);
+function esc(s){ return String(s).replace(/[&<>"']/g, m=>({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#039;" }[m])) }
+function byKey(obj){ return Object.keys(obj||{}).sort() }
+function debounce(fn,ms){let t;return (...a)=>{clearTimeout(t);t=setTimeout(()=>fn(...a),ms)}}
+
+/* ---------- Render ---------- */
+function render(data){
+  DATA = data || {};
+  const acc = $('#accordion');
+  acc.innerHTML = '';
+  SELECTED = new Set(byKey(DATA)); // por defecto: todo seleccionado
+  const cats = byKey(DATA);
+
+  if (!cats.length){
+    $('#status').textContent = 'No hay productos para envasado.';
+    return;
+  }
+  $('#status').textContent = `Categorías: ${cats.length}`;
+
+  cats.forEach(cat=>{
+    const info = DATA[cat];
+    const section = document.createElement('section');
+    section.className = 'cat';
+    section.dataset.cat = cat;
+
+    section.innerHTML = `
+      <div class="head" role="button" aria-expanded="false">
+        <input class="chk" type="checkbox" ${SELECTED.has(cat)?'checked':''} />
+        <div class="title">${esc(cat)}</div>
+        <div class="pill">${info.count}</div>
+        <div class="toggle">Mostrar</div>
+      </div>
+      <div class="body">
+        <table>
+          <thead><tr>
+            <th style="width:45%;">Producto</th>
+            <th style="width:15%;">Cant.</th>
+            <th style="width:25%;">Categoría</th>
+            <th style="width:15%; text-align:right;">Acciones</th>
+          </tr></thead>
+          <tbody>
+          ${byKey(info.products).map(name => `
+            <tr data-name="${esc(name)}" data-cat="${esc(cat)}">
+              <td>${esc(name)}</td>
+              <td>${info.products[name]}</td>
+              <td><span class="tag">${esc(cat)}</span></td>
+              <td class="row-actions">
+                <button class="btn ghost btn-edit">✏️ Editar</button>
+              </td>
+            </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+    `;
+    // Eventos de cabecera
+    const head = section.querySelector('.head');
+    head.addEventListener('click', (e)=>{
+      // Si se hizo click en el checkbox no togglear open/close
+      if (e.target.classList.contains('chk')) return;
+      section.classList.toggle('open');
+      head.setAttribute('aria-expanded', section.classList.contains('open'));
+      head.querySelector('.toggle').textContent = section.classList.contains('open') ? 'Ocultar' : 'Mostrar';
+    });
+    // Checkbox categoría
+    head.querySelector('.chk').addEventListener('change', (e)=>{
+      const checked = e.target.checked;
+      if (checked) SELECTED.add(cat); else SELECTED.delete(cat);
+    });
+    // Editar productos dentro de la tabla
+    section.querySelectorAll('.btn-edit').forEach(btn=>{
+      btn.addEventListener('click', (ev)=>{
+        ev.stopPropagation();
+        const tr = ev.target.closest('tr');
+        const name = tr.dataset.name;
+        const currCat = tr.dataset.cat;
+        openEditor(name, currCat);
+      });
+    });
+
+    acc.appendChild(section);
+  });
+}
+
+/* ---------- Editor de Categoría ---------- */
+function openEditor(name, currCat){
+  CURRENT_EDIT = { name, cat: currCat };
+  $('#editName').textContent = name;
+  const sel = $('#editCatSel');
+  sel.innerHTML = '';
+  // opciones existentes + opción libre
+  const categories = Array.from(new Set([currCat, ...ALL_CATEGORIES])).sort();
+  categories.forEach(c=>{
+    const opt = document.createElement('option');
+    opt.value = c; opt.textContent = c;
+    if (c === currCat) opt.selected = true;
+    sel.appendChild(opt);
+  });
+  $('#editPop').classList.add('open');
+}
+
+$('#btnCancel').addEventListener('click', ()=> $('#editPop').classList.remove('open'));
+$('#btnSave').addEventListener('click', ()=>{
+  const newCat = $('#editCatSel').value?.trim();
+  if (!newCat){ alert('Selecciona una categoría'); return; }
+  const { name } = CURRENT_EDIT;
+  $('#btnSave').disabled = true;
+  google.script.run
+    .withSuccessHandler(res=>{
+      $('#btnSave').disabled = false;
+      $('#editPop').classList.remove('open');
+      if (!res || !res.ok){
+        alert('No se pudo actualizar en SKU.'); return;
+      }
+      // Recargar datos para reflejar el cambio y mover el producto a su acordeón correcto
+      loadData();
+    })
+    .withFailureHandler(err=>{
+      $('#btnSave').disabled = false;
+      alert('Error: ' + (err?.message || err));
+    })
+    .api_updateProductCategory(name, newCat);
+});
+
+/* ---------- Filtrado ---------- */
+$('#q').addEventListener('input', debounce(()=>{
+  const q = $('#q').value.toLowerCase().trim();
+  document.querySelectorAll('.cat').forEach(sec=>{
+    let visible = false;
+    if (!q) visible = true;
+    else {
+      const cat = sec.dataset.cat.toLowerCase();
+      if (cat.includes(q)) visible = true;
+      else {
+        for (const tr of sec.querySelectorAll('tbody tr')) {
+          if (tr.dataset.name.toLowerCase().includes(q)) { visible = true; break; }
+        }
+      }
+    }
+    sec.style.display = visible ? '' : 'none';
+  });
+}, 120));
+
+/* ---------- Acciones globales ---------- */
+$('#btnAll').addEventListener('click', ()=>{
+  document.querySelectorAll('.cat .chk').forEach(cb => { cb.checked = true; cb.dispatchEvent(new Event('change')); });
+});
+$('#btnNone').addEventListener('click', ()=>{
+  document.querySelectorAll('.cat .chk').forEach(cb => { cb.checked = false; cb.dispatchEvent(new Event('change')); });
+});
+$('#btnGen').addEventListener('click', ()=>{
+  const cats = Array.from(SELECTED);
+  if (!cats.length){ alert('Selecciona al menos una categoría'); return; }
+  const btn = $('#btnGen'); btn.disabled = true; btn.textContent = 'Generando…';
+  google.script.run
+    .withSuccessHandler(res=>{
+      btn.disabled = false; btn.textContent = 'Generar lista';
+      if (res && res.status === 'success'){
+        alert('Hoja creada: ' + res.sheetName + '. Quedó activa y lista para imprimir.');
+        google.script.host.close();
+      } else {
+        alert('Se generó con advertencias. Revisa la hoja.');
+      }
+    })
+    .withFailureHandler(err=>{
+      btn.disabled = false; btn.textContent = 'Generar lista';
+      alert('Error: ' + (err?.message || err));
+    })
+    .generatePackagingSheet(cats);
+});
+
+/* ---------- Carga inicial ---------- */
+function loadData(){
+  $('#status').textContent = 'Cargando…';
+  google.script.run
+    .withSuccessHandler(render)
+    .withFailureHandler(err=>{
+      $('#status').textContent = 'Error al cargar: ' + (err?.message || err);
+    })
+    .getPackagingData();
+
+  // categorías existentes (para el selector del editor)
+  google.script.run
+    .withSuccessHandler(list=>{
+      ALL_CATEGORIES = Array.isArray(list) ? list : [];
+    })
+    .getAllCategories();
+}
+loadData();
+</script>
+</body>
+</html>
