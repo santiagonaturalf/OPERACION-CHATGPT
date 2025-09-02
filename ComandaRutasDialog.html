@@ -79,7 +79,10 @@
 </head>
 <body>
   <div class="container">
-    <h1>🚚 Comanda Rutas</h1>
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+      <h1>🚚 Comanda Rutas</h1>
+      <button id="cleanup-btn" class="action-button" style="background:#d9534f;">🗑️ Limpiar Hojas de Ruta Antiguas</button>
+    </div>
 
     <!-- Paso 1 -->
     <div class="card">
@@ -93,6 +96,7 @@
           <option value="">Asignar Furgón...</option>
         </select>
         <button id="bulk-assign-btn" class="action-button" style="background:#5bc0de;">Asignar</button>
+        <button id="bulk-unassign-btn" class="action-button" style="background:#dc3545;">Quitar Asignación</button>
       </div>
       <div id="status-log">Cargando pedidos...</div>
       <div style="max-height: 400px; overflow-y: auto; margin-top: 15px;">
@@ -157,11 +161,6 @@
       <div id="pdf-links-container"></div>
     </div>
 
-    <!-- Mantenimiento -->
-    <div class="card">
-      <h2>Mantenimiento</h2>
-      <button id="cleanup-btn" class="action-button" style="background:#d9534f;">🗑️ Limpiar Hojas de Ruta Antiguas</button>
-    </div>
   </div>
 
   <datalist id="address-list"></datalist>
@@ -210,6 +209,7 @@
       document.getElementById('order-search-input').addEventListener('keyup', handleOrderSearch);
       document.getElementById('commune-filter-select').addEventListener('change', handleCommuneFilter);
       document.getElementById('bulk-assign-btn').addEventListener('click', handleBulkAssign);
+      document.getElementById('bulk-unassign-btn').addEventListener('click', handleBulkUnassign);
 
       // botones principales
       document.getElementById('process-btn').addEventListener('click', handleProcessRoute);
@@ -318,6 +318,7 @@
           number: row.dataset.orderNumber,
           customer: row.cells[1].textContent.trim(),
           address: row.querySelector('[data-field="address"]').value,
+          department: row.querySelector('[data-field="department"]').value,
           commune: row.querySelector('[data-field="commune"]').value
         };
         if (van) { (ordersByVan[van] ||= []).push(order); }
@@ -378,10 +379,11 @@
 
       if (list.length) {
         list.forEach(o => {
-          const full = `#${o.number} - ${o.customer}, ${o.address}, ${o.commune}`;
+          const addressParts = [o.address, o.department, o.commune].filter(Boolean).join(', ');
+          const full = `#${o.number} - ${o.customer}, ${addressParts}`;
           const li = document.createElement('li'); li.className='preview-item'; li.dataset.commune = o.commune; li.dataset.searchText = full.toLowerCase();
           li.innerHTML = `<input type="checkbox" class="move-order-checkbox" data-order-number="${o.number}">
-                          <span class="order-text" title="${full}"><b>#${o.number}</b> - ${o.customer}, ${o.address}, ${o.commune}</span>`;
+                          <span class="order-text" title="${full}"><b>#${o.number}</b> - ${o.customer}, ${addressParts}</span>`;
           ul.appendChild(li);
         });
       } else {
@@ -416,10 +418,11 @@
       const ul = document.createElement('ul'); ul.className = 'preview-list';
 
       list.forEach(o => {
-        const full = `#${o.number} - ${o.customer}, ${o.address}, ${o.commune}`;
+        const addressParts = [o.address, o.department, o.commune].filter(Boolean).join(', ');
+        const full = `#${o.number} - ${o.customer}, ${addressParts}`;
         const li = document.createElement('li'); li.className='preview-item';
         li.innerHTML = `<input type="checkbox" class="move-order-checkbox" data-order-number="${o.number}">
-                        <span class="order-text" title="${full}"><b>#${o.number}</b> - ${o.customer}, ${o.address}, ${o.commune}</span>`;
+                        <span class="order-text" title="${full}"><b>#${o.number}</b> - ${o.customer}, ${addressParts}</span>`;
         ul.appendChild(li);
       });
 
@@ -541,6 +544,45 @@
       } else { alert('No hay pedidos visibles para esa comuna.'); }
     }
 
+    function handleBulkUnassign() {
+      const cm = document.getElementById('commune-filter-select').value;
+      if (!cm) { alert('Primero filtra por una comuna para quitar asignaciones.'); return; }
+
+      const updated = [];
+      let n = 0;
+      const rows = ordersTableBody.querySelectorAll('tr');
+
+      rows.forEach(r => {
+        if (r.style.display === 'none') return;
+        const ci = r.querySelector('[data-field="commune"]');
+        if (ci && ci.value === cm) {
+          const vs = r.querySelector('[data-field="van"]');
+          if (vs && vs.value !== '') {
+            vs.value = ''; // Quitar la asignación
+            n++;
+            updated.push({
+              orderNumber: r.dataset.orderNumber,
+              phone: r.cells[2].textContent.trim(),
+              address: r.querySelector('[data-field="address"]').value,
+              department: r.querySelector('[data-field="department"]').value,
+              commune: ci.value,
+              van: '' // van vacío
+            });
+          }
+        }
+      });
+
+      if (n > 0) {
+        statusLog.textContent = `Quitando asignación de furgón para ${n} pedidos...`;
+        google.script.run.withSuccessHandler(() => {
+          alert(`Se ha quitado la asignación de furgón para ${n} pedidos de "${cm}".`);
+          statusLog.textContent = 'Proceso de desasignación completado.';
+        }).withFailureHandler(handleError).saveRouteChanges(updated);
+      } else {
+        alert('No se encontraron pedidos asignados en la comuna visible para quitar.');
+      }
+    }
+
     // ========= RouteXL =========
     function handleGenerateRouteXLList() {
       const byVan = {};
@@ -550,8 +592,10 @@
         (byVan[van] ||= []);
         const orderNumber = '#' + r.dataset.orderNumber;
         const address = r.querySelector('[data-field="address"]').value.trim();
+        const department = r.querySelector('[data-field="department"]').value.trim();
         const commune = r.querySelector('[data-field="commune"]').value.trim();
-        if (address && commune) byVan[van].push({ orderNumber, addressString: `${address}, ${commune}, Chile` });
+        const addressString = [address, department, commune].filter(Boolean).join(', ') + ', Chile';
+        if (address && commune) byVan[van].push({ orderNumber, addressString });
       });
 
       const container = document.getElementById('routexl-output-container');

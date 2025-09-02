@@ -40,7 +40,7 @@
     #paste-import-btn { background-color: #0d6efd; color: white; }
     #clean-btn { background-color: #dc3545; color: white; }
     #refresh-btn { background-color: #198754; color: white; }
-    #packaging-btn, #acq-btn, #notify-btn { background-color: #6c757d; color: white; }
+    #packaging-btn, #acq-btn, #notify-btn, #comanda-rutas-btn { background-color: #6c757d; color: white; }
     #status-log { font-size: 12px; font-style: italic; color: #606770; margin-top: 15px; min-height: 18px;}
   </style>
   <script type="text/javascript" src="https://www.google.com/jsapi"></script>
@@ -73,6 +73,7 @@
                 <button id="packaging-btn" class="action-button">▶️ Iniciar Proceso de Envasado</button>
                 <button id="acq-btn" class="action-button">📝 Generar Adquisiciones</button>
                 <button id="notify-btn" class="action-button">📲 Notificar a Proveedores</button>
+                <button id="comanda-rutas-btn" class="action-button">🚚 Comanda Rutas</button>
             </div>
         </div>
         <div id="status-log">Bienvenido.</div>
@@ -170,6 +171,8 @@
         google.script.run.withSuccessHandler(() => setLoadingState(false)).withFailureHandler(handleError).showAcquisitionEditor();
     });
     document.getElementById('notify-btn').addEventListener('click', () => google.script.run.startNotificationProcess());
+
+    document.getElementById('comanda-rutas-btn').addEventListener('click', () => google.script.run.showComandaRutasDialog());
 
     function handleSuccess(message) {
         setLoadingState(false, message);
