@@ -1161,7 +1161,6 @@ function getReconciliationData() {
 // --- LÓGICA DEL DASHBOARD ---
 
 function showDashboard() {
-  updateAcquisitionListAutomated();
   const html = HtmlService.createHtmlOutputFromFile('DashboardDialog')
     .setWidth(1200)
     .setHeight(800);
