@@ -50,7 +50,9 @@
   </div>
 
   <div class="footer">
-    <button id="btnGen" class="btn gen" disabled>Generar y Abrir en WhatsApp</button>
+    <button id="btnGen" class="btn gen" disabled>Generar link de WhatsApp</button>
+    <button id="btnCopy" class="btn copy" disabled>Copiar link</button>
+    <button id="btnOpen" class="btn open" disabled>Abrir link</button>
     <span id="status" class="muted"></span>
   </div>
 
@@ -227,7 +229,7 @@
       setStatus('Cargando…');
       google.script.run.withSuccessHandler(data=>{
         STATE.providers = (data.providers||[]).map(p=>({
-          ...p, items: (p.items||[]).map(it=>({...it, qty: it.qty||1, checked: false }))
+          ...p, items: (p.items||[]).map(it=>({...it, qty: it.qty||1, checked: it.qty > 0 }))
         }));
         setStatus(''); render();
       }).withFailureHandler(err=> setStatus('Error: '+err.message))
@@ -247,16 +249,28 @@
       const payload = prov.selected.map(i=>({name:i.name, qty:i.qty, presentation:i.presentation}));
       google.script.run.withSuccessHandler(link=>{
         STATE.lastLink = link;
-        navigator.clipboard.writeText(link).then(()=> setStatus('Link copiado. Abriendo...'));
-        window.open(link, '_blank', 'noopener');
+        $('#btnCopy').disabled = false;
+        $('#btnOpen').disabled = false;
         setStatus('Link listo.');
       }).withFailureHandler(err=> setStatus('Error: '+err.message))
         .api_buildWhatsappLink(prov.phone, prov.name, payload);
     }
 
+    function copyLink(){
+      if(!STATE.lastLink) return;
+      navigator.clipboard.writeText(STATE.lastLink).then(()=> setStatus('Link copiado.'));
+    }
+    function openLink(){
+      if(!STATE.lastLink) return;
+      // Abrimos en el cliente (evita “colapsos” desde el servidor).
+      window.open(STATE.lastLink, '_blank', 'noopener');
+    }
+
     window.addEventListener('DOMContentLoaded', ()=>{
       $('#search').addEventListener('input', render);
       $('#btnGen').addEventListener('click', generateLink);
+      $('#btnCopy').addEventListener('click', copyLink);
+      $('#btnOpen').addEventListener('click', openLink);
       load();
     });
   </script>

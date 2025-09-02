@@ -79,18 +79,6 @@
         <div id="status-log">Bienvenido.</div>
       </div>
 
-      <div class="card table-card">
-        <h2>Top 5 Productos Vendidos</h2>
-        <table id="top-products-table">
-          <thead><tr><th>Producto</th><th>Cantidad</th></tr></thead>
-          <tbody><tr><td colspan="2">Cargando...</td></tr></tbody>
-        </table>
-      </div>
-
-      <div id="chart-card" class="card">
-        <h2>Distribución por Comuna</h2>
-        <div id="chart-div" style="width: 100%; height: 100%;"></div>
-      </div>
     </div>
   </div>
 
@@ -129,23 +117,7 @@
             }).withFailureHandler(reject).getDashboardCostMetrics();
         });
 
-        const p3 = new Promise((resolve, reject) => {
-            google.script.run.withSuccessHandler(data => {
-                if(data.error) return reject(new Error(data.error));
-                metrics.topSoldProducts = data;
-                resolve();
-            }).withFailureHandler(reject).getDashboardTopProducts();
-        });
-
-        const p4 = new Promise((resolve, reject) => {
-            google.script.run.withSuccessHandler(data => {
-                if(data.error) return reject(new Error(data.error));
-                metrics.communeDistribution = data;
-                resolve();
-            }).withFailureHandler(reject).getDashboardCommuneDistribution();
-        });
-
-        Promise.all([p1, p2, p3, p4])
+        Promise.all([p1, p2])
             .then(() => {
                 populateUI(metrics);
             })
@@ -201,24 +173,6 @@
       document.getElementById('kpi-orders-value').textContent = metrics.orderCount || 0;
       document.getElementById('kpi-costs-value').textContent = `$${(metrics.totalCosts || 0).toLocaleString('es-CL')}`;
       document.getElementById('kpi-margin-value').textContent = `${(metrics.marginPercentage || 0).toFixed(1)}%`;
-
-      const topProductsBody = document.querySelector("#top-products-table tbody");
-      topProductsBody.innerHTML = metrics.topSoldProducts.map(p => `<tr><td>${p[0]}</td><td>${p[1]}</td></tr>`).join('') || `<tr><td colspan="2">No hay datos.</td></tr>`;
-
-      drawChart(metrics.communeDistribution);
-    }
-
-    function drawChart(communeData) {
-        const chartDiv = document.getElementById('chart-div');
-        if (communeData.length === 0) {
-            chartDiv.innerHTML = 'No hay datos para el gráfico.';
-            return;
-        }
-        const dataForChart = [['Comuna', 'Pedidos'], ...communeData];
-        const data = google.visualization.arrayToDataTable(dataForChart);
-        const options = { title: 'Distribución de Pedidos por Comuna', pieHole: 0.4, legend: {position: 'bottom'} };
-        const chart = new google.visualization.PieChart(chartDiv);
-        chart.draw(data, options);
     }
   </script>
 </body>
