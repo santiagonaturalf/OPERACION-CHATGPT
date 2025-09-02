@@ -1493,9 +1493,13 @@ function triggerCategoryDialog() {
   showCategorySelectionDialog();
 }
 
+/** PASO 2 · Panel interno para Envasado (Modal) **/
 function showCategorySelectionDialog() {
-  const html = HtmlService.createHtmlOutputFromFile('CategoryDialog').setWidth(500).setHeight(450);
-  SpreadsheetApp.getUi().showModalDialog(html, 'Paso 2: Seleccionar Categorías para Envasado');
+  // Abre un diálogo modal central en lugar de un panel lateral.
+  const html = HtmlService.createHtmlOutputFromFile('CategoryPanel')
+    .setWidth(900)
+    .setHeight(700);
+  SpreadsheetApp.getUi().showModalDialog(html, 'Paso 2: Categorías para Envasado');
 }
 
 function getPackagingData() {
@@ -1524,25 +1528,63 @@ function getPackagingData() {
 function generatePackagingSheet(selectedCategories) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const data = getPackagingData();
-  let sheet = ss.getSheetByName("Lista de Envasado");
-  if (sheet) { sheet.clear(); } else { sheet = ss.insertSheet("Lista de Envasado"); }
+
+  // Crear una hoja con un nombre único basado en la fecha
+  const date = new Date();
+  const formattedDate = Utilities.formatDate(date, Session.getScriptTimeZone(), "yyyy-MM-dd");
+  const sheetName = `Lista de Envasado - ${formattedDate}`;
+
+  let sheet = ss.getSheetByName(sheetName);
+  if (sheet) {
+    sheet.clear(); // Limpiar la hoja si ya existe para este día
+  } else {
+    sheet = ss.insertSheet(sheetName); // Crear una nueva si no existe
+  }
+
+  sheet.activate(); // Activar la hoja para que el usuario la vea
+
   let currentRow = 1;
-  sheet.getRange("A1:C1").setValues([["Cantidad", "Inventario", "Nombre Producto"]]).setFontWeight("bold");
+
+  // Título principal
+  sheet.getRange(currentRow, 1, 1, 3).merge().setValue("Lista de Envasado").setFontWeight("bold").setFontSize(14).setHorizontalAlignment("center");
+  currentRow += 2; // Espacio después del título
+
+  // Encabezados de la tabla
+  const headers = ["Cantidad", "Inventario", "Nombre Producto"];
+  const headerRange = sheet.getRange(currentRow, 1, 1, 3);
+  headerRange.setValues([headers]).setFontWeight("bold");
+  sheet.setFrozenRows(currentRow);
+  currentRow++;
+
+  // Llenar datos por categoría
   selectedCategories.sort().forEach(category => {
-    currentRow++;
+    // Fila de cabecera de categoría
     sheet.getRange(currentRow, 1, 1, 3).merge().setValue(category.toUpperCase()).setFontWeight("bold").setHorizontalAlignment("center").setBackground("#f2f2f2");
     currentRow++;
+
     const products = data[category].products;
     const sortedProductNames = Object.keys(products).sort();
+
+    const productRows = [];
     sortedProductNames.forEach(productName => {
-      sheet.getRange(currentRow, 1).setValue(products[productName]);
-      sheet.getRange(currentRow, 3).setValue(productName);
-      currentRow++;
+      // Dejar la columna "Inventario" en blanco como en la versión original
+      productRows.push([products[productName], '', productName]);
     });
+
+    if (productRows.length > 0) {
+      sheet.getRange(currentRow, 1, productRows.length, 3).setValues(productRows);
+      currentRow += productRows.length;
+    }
+    currentRow++; // Añadir una fila en blanco entre categorías para mayor claridad
   });
-  sheet.autoResizeColumns(1, 3);
-  const printUrl = `https://docs.google.com/spreadsheets/d/${ss.getId()}/export?format=pdf&gid=${sheet.getSheetId()}&portrait=true&fitw=true&gridlines=false&printtitle=false`;
-  return printUrl;
+
+  // Ajustar anchos de columna
+  sheet.setColumnWidth(1, 100); // Ancho para "Cantidad"
+  sheet.setColumnWidth(2, 100); // Ancho para "Inventario"
+  sheet.setColumnWidth(3, 350); // Ancho para "Nombre Producto"
+
+  // Devolver un objeto de éxito en lugar de una URL
+  return { status: "success", sheetName: sheetName };
 }
 
 // --- FLUJO DE ADQUISICIONES ---
@@ -3318,4 +3360,58 @@ function api_buildWhatsappLink(rawPhone, supplierName, items) {
   const text = [intro, ...lines, '', '¡Gracias!'].join('\n');
   const url  = `https://api.whatsapp.com/send/?phone=${encodeURIComponent(phone)}&text=${encodeURIComponent(text)}`;
   return url;
+}
+
+/**
+ * Actualiza la Categoría en la hoja SKU para un producto específico.
+ * Busca por "Nombre Producto". Si encuentra varias filas con el mismo nombre, actualiza todas.
+ * Devuelve { ok:boolean, updated:number }.
+ */
+function api_updateProductCategory(productName, newCategory) {
+  if (!productName || !newCategory) throw new Error('Datos insuficientes');
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName('SKU');
+  if (!sheet) throw new Error("No se encontró la hoja 'SKU'.");
+
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return { ok: false, msg: 'SKU vacío' };
+
+  const range = sheet.getRange(1, 1, 1, sheet.getLastColumn());
+  const headers = range.getValues()[0];
+  const nameCol = headers.indexOf('Nombre Producto');
+  const catCol  = headers.indexOf('Categoría');
+  if (nameCol === -1 || catCol === -1) {
+    throw new Error("Faltan columnas 'Nombre Producto' y/o 'Categoría' en SKU");
+  }
+
+  const data = sheet.getRange(2, 1, lastRow - 1, sheet.getLastColumn()).getValues();
+  let updated = 0;
+  for (let i = 0; i < data.length; i++) {
+    const rowIndex = i + 2;
+    const name = String(data[i][nameCol]).trim();
+    if (name && name === String(productName).trim()) {
+      sheet.getRange(rowIndex, catCol + 1).setValue(newCategory);
+      updated++;
+    }
+  }
+  SpreadsheetApp.flush();
+  return { ok: updated > 0, updated };
+}
+
+/**
+ * (Opcional) Lista de todas las categorías existentes en SKU
+ * para poblar el selector del panel con opciones reales.
+ */
+function getAllCategories() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sku = ss.getSheetByName('SKU');
+  if (!sku) return [];
+  const last = sku.getLastRow();
+  if (last < 2) return [];
+  const headers = sku.getRange(1, 1, 1, sku.getLastColumn()).getValues()[0];
+  const catCol = headers.indexOf('Categoría');
+  if (catCol === -1) return [];
+  const values = sku.getRange(2, catCol + 1, last - 1, 1).getValues().flat();
+  return [...new Set(values.filter(v => v && String(v).trim() !== ''))].sort();
 }
