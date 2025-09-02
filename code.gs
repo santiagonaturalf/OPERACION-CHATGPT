@@ -14,7 +14,7 @@ function onOpen() {
     .addItem('🚀 Abrir Dashboard de Operaciones', 'showDashboard')
     .addSeparator()
     .addItem('🚚 Comanda Rutas', 'showComandaRutasDialog')
-    .addItem('💬 Notificar a Proveedores', 'startNotificationProcess')
+    .addItem('💬 Panel de Notificaciones (nuevo)', 'openNotificationPanel')
     .addSeparator()
     .addItem('📈 Analizar Adquisiciones', 'runPriceAnalysis')
     .addSeparator();
@@ -1770,83 +1770,6 @@ function recalculateRowInventory(sheet, row) {
   sheet.getRange(row, 8).setValue(inventarioFinal);
 }
 
-function startNotificationProcess() {
-  const html = HtmlService.createHtmlOutputFromFile('NotificationDialog').setWidth(600).setHeight(400);
-  SpreadsheetApp.getUi().showModalDialog(html, 'Panel de Notificación a Proveedores');
-}
-
-function getSupplierList() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const acquisitionsSheet = ss.getSheetByName("Lista de Adquisiciones");
-  if (!acquisitionsSheet || acquisitionsSheet.getLastRow() < 2) {
-    return [];
-  }
-  const supplierData = acquisitionsSheet.getRange("L2:L" + acquisitionsSheet.getLastRow()).getValues();
-  const suppliers = new Set();
-  supplierData.forEach(row => {
-    if (row[0]) {
-      suppliers.add(String(row[0]).trim());
-    }
-  });
-  return Array.from(suppliers).sort();
-}
-
-function getOrdersForSupplier(supplierName) {
-  if (!supplierName) {
-    throw new Error("Se requiere un nombre de proveedor.");
-  }
-
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const acquisitionsSheet = ss.getSheetByName("Lista de Adquisiciones");
-  const proveedoresSheet = ss.getSheetByName("Proveedores");
-  const skuSheet = ss.getSheetByName("SKU");
-
-  if (!acquisitionsSheet) throw new Error("No se encuentra la hoja 'Lista de Adquisiciones'.");
-  if (!proveedoresSheet) throw new Error("No se encuentra la hoja 'Proveedores'.");
-  if (!skuSheet) throw new Error("No se encuentra la hoja 'SKU'.");
-
-  const phoneMapProveedores = new Map();
-  if (proveedoresSheet.getLastRow() > 1) {
-    const phoneData = proveedoresSheet.getRange("A2:B" + proveedoresSheet.getLastRow()).getValues();
-    phoneData.forEach(([name, phone]) => {
-      if (name && phone) phoneMapProveedores.set(String(name).trim(), String(phone).trim());
-    });
-  }
-  const phoneMapSku = new Map();
-  if (skuSheet.getLastRow() > 1) {
-    const skuSupplierData = skuSheet.getRange("I2:J" + skuSheet.getLastRow()).getValues();
-    skuSupplierData.forEach(([supplier, phone]) => {
-      if (supplier && phone) {
-        const supName = String(supplier).trim();
-        if (!phoneMapSku.has(supName)) phoneMapSku.set(supName, String(phone).trim());
-      }
-    });
-  }
-  const phone = phoneMapProveedores.get(supplierName) || phoneMapSku.get(supplierName) || 'No encontrado';
-
-  const orders = [];
-  if (acquisitionsSheet.getLastRow() > 1) {
-    const allData = acquisitionsSheet.getRange("A2:L" + acquisitionsSheet.getLastRow()).getValues();
-    allData.forEach(row => {
-      const [product, quantity, format, , , , , , , , , supplier] = row;
-      if (supplier && String(supplier).trim() === supplierName) {
-        if (product && quantity && parseFloat(String(quantity).replace(',', '.')) !== 0) {
-          orders.push({
-            product: String(product).trim(),
-            quantity: quantity,
-            format: String(format).trim()
-          });
-        }
-      }
-    });
-  }
-
-  return {
-    phone: phone,
-    orders: orders
-  };
-}
-
 // --- MÓDULO DE ANÁLISIS DE PRECIOS ---
 
 /**
@@ -3240,4 +3163,160 @@ function setupTriggers() {
   } else {
     Logger.log(`El disparador para '${functionName}' ya existe.`);
   }
+}
+
+/**********************
+ * PANEL DE NOTIFICACIONES
+ **********************/
+
+function openNotificationPanel() {
+  const html = HtmlService.createHtmlOutputFromFile('NotificationPanel')
+    .setWidth(1000)
+    .setHeight(720);
+  SpreadsheetApp.getUi().showModalDialog(html, 'Panel de Notificación a Proveedores');
+}
+
+/**
+ * Lee "Lista de Adquisiciones" y arma:
+ *  providers: [{ name, phone, items:[{name, presentation, qty}] }]
+ * Donde phone sale de "Proveedores" (A: Nombre, B: Teléfono) con fallback a "SKU" (I: Proveedor, J: Teléfono).
+ */
+function api_getPanelData() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  const adquis = ss.getSheetByName('Lista de Adquisiciones');
+  if (!adquis || adquis.getLastRow() < 2) return { providers: [] };
+
+  const proveedoresSheet = ss.getSheetByName('Proveedores');
+  const skuSheet = ss.getSheetByName('SKU');
+
+  // Mapas de teléfonos
+  const phoneBySupplier = new Map();
+  if (proveedoresSheet && proveedoresSheet.getLastRow() > 1) {
+    proveedoresSheet.getRange(2, 1, proveedoresSheet.getLastRow() - 1, 2).getValues()
+      .forEach(([name, phone]) => {
+        if (name) phoneBySupplier.set(String(name).trim(), String(phone || '').trim());
+      });
+  }
+  if (skuSheet && skuSheet.getLastRow() > 1) {
+    // I: Proveedor, J: Teléfono
+    skuSheet.getRange(2, 9, skuSheet.getLastRow() - 1, 2).getValues()
+      .forEach(([supplier, phone]) => {
+        const s = String(supplier || '').trim();
+        if (s && !phoneBySupplier.has(s) && phone) {
+          phoneBySupplier.set(s, String(phone).trim());
+        }
+      });
+  }
+
+  // Leemos adquisiciones: A: Producto Base, B: Cantidad a Comprar, C: Formato, D: Inv. Actual, E: Unidad Inv., F: Necesidad Venta, L: Proveedor
+  const data = adquis.getRange(2, 1, adquis.getLastRow() - 1, 12).getValues();
+  const bySupplier = new Map();
+
+  data.forEach(row => {
+    const productBase = String(row[0] || '').trim();
+    const qty         = parseFloat(String(row[1] || '0').replace(',', '.')) || 0;
+    const formatStr   = String(row[2] || '').trim();
+    const invActual   = parseFloat(String(row[3] || '0').replace(',', '.')) || 0;
+    const invUnit     = String(row[4] || 'un.').trim();
+    const salesNeed   = parseFloat(String(row[5] || '0').replace(',', '.')) || 0;
+    const supplier    = String(row[11] || '').trim();
+
+    if (!supplier || !productBase || qty === 0) return;
+
+    if (!bySupplier.has(supplier)) {
+      bySupplier.set(supplier, {
+        name: supplier,
+        phone: phoneBySupplier.get(supplier) || '',
+        items: []
+      });
+    }
+    bySupplier.get(supplier).items.push({
+      name: productBase,
+      presentation: formatStr,
+      qty: qty,
+      currentInventory: invActual,
+      salesNeed: salesNeed,
+      unit: invUnit
+    });
+  });
+
+  // Ordenamos alfabéticamente y devolvemos
+  const providers = Array.from(bySupplier.values())
+    .sort((a,b)=> a.name.localeCompare(b.name));
+  return { providers };
+}
+
+/**
+ * Crea/actualiza el teléfono del proveedor en la hoja "Proveedores".
+ */
+function api_updateProviderPhone(supplierName, rawPhone) {
+  if (!supplierName) throw new Error('Falta nombre de proveedor');
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sh = ss.getSheetByName('Proveedores');
+  if (!sh) {
+    sh = ss.insertSheet('Proveedores');
+    sh.getRange(1,1,1,2).setValues([['Nombre','Teléfono']]).setFontWeight('bold');
+  }
+
+  const phone = normalizePhoneNumber(rawPhone); // ya existe en tu código
+  const last = sh.getLastRow();
+  if (last < 2) {
+    sh.appendRow([supplierName, phone]);
+    return 'OK';
+  }
+
+  const range = sh.getRange(2,1,last-1,2).getValues();
+  for (let i=0;i<range.length;i++){
+    if (String(range[i][0]).trim() === supplierName) {
+      sh.getRange(i+2, 2).setValue(phone);
+      return 'OK';
+    }
+  }
+  sh.appendRow([supplierName, phone]);
+  return 'OK';
+}
+
+/**
+ * Construye el link de WhatsApp con el formato de mensaje solicitado.
+ * No abre ventanas; solo devuelve la URL para que el cliente la copie/abra.
+ */
+function api_updatePurchaseQuantity(productName, newQuantity) {
+  if (!productName) throw new Error('Falta el nombre del producto.');
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sh = ss.getSheetByName('Lista de Adquisiciones');
+  if (!sh || sh.getLastRow() < 2) {
+    throw new Error("No se encontró la hoja 'Lista de Adquisiciones' o está vacía.");
+  }
+
+  const data = sh.getRange(2, 1, sh.getLastRow() - 1, 2).getValues(); // A: Producto Base, B: Cantidad
+  for (let i = 0; i < data.length; i++) {
+    if (String(data[i][0]).trim() === productName) {
+      const rowIdx = i + 2;
+      sh.getRange(rowIdx, 2).setValue(newQuantity);
+      // Disparar el recálculo del inventario final en la misma fila
+      recalculateRowInventory(sh, rowIdx);
+      return { status: 'success', message: `Cantidad de '${productName}' actualizada.` };
+    }
+  }
+
+  throw new Error(`No se encontró el producto '${productName}' en la lista.`);
+}
+
+function api_buildWhatsappLink(rawPhone, supplierName, items) {
+  if (!items || !Array.isArray(items) || items.length === 0) {
+    throw new Error('No hay ítems seleccionados');
+  }
+  const phone = normalizePhoneNumber(rawPhone); // reutiliza tu helper
+  const intro = '¡Hola! Te envío nuestro pedido para hoy:';
+  const lines = items.map(i=>{
+    const qty = Math.max(1, parseInt(i.qty,10)||1);
+    const pres = i.presentation ? `, ${i.presentation}` : '';
+    return `- *${qty}* ${i.name}${pres}`;
+  });
+
+  const text = [intro, ...lines, '', '¡Gracias!'].join('\n');
+  const url  = `https://api.whatsapp.com/send/?phone=${encodeURIComponent(phone)}&text=${encodeURIComponent(text)}`;
+  return url;
 }
