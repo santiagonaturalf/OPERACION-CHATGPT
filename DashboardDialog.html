@@ -142,7 +142,7 @@
         setLoadingState(true, 'Generando borrador y abriendo editor...');
         google.script.run.withSuccessHandler(() => setLoadingState(false)).withFailureHandler(handleError).showAcquisitionEditor();
     });
-    document.getElementById('notify-btn').addEventListener('click', () => google.script.run.startNotificationProcess());
+    document.getElementById('notify-btn').addEventListener('click', () => google.script.run.openNotificationPanel());
 
     document.getElementById('comanda-rutas-btn').addEventListener('click', () => google.script.run.showComandaRutasDialog());
 
