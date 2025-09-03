@@ -263,13 +263,15 @@ $('#btnGen').addEventListener('click', ()=>{
   if (!cats.length){ alert('Selecciona al menos una categoría'); return; }
   const btn = $('#btnGen'); btn.disabled = true; btn.textContent = 'Generando…';
   google.script.run
-    .withSuccessHandler(res=>{
+    .withSuccessHandler(url=>{
       btn.disabled = false; btn.textContent = 'Generar lista';
-      if (res && res.status === 'success'){
-        alert('Hoja creada: ' + res.sheetName + '. Quedó activa y lista para imprimir.');
+      if (url && typeof url === 'string'){
+        // Abrir la URL del PDF en una nueva pestaña
+        window.open(url, '_blank');
+        // Cerrar el diálogo modal
         google.script.host.close();
       } else {
-        alert('Se generó con advertencias. Revisa la hoja.');
+        alert('No se pudo generar la URL para la impresión. Por favor, intente de nuevo.');
       }
     })
     .withFailureHandler(err=>{

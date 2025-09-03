@@ -1529,6 +1529,12 @@ function generatePackagingSheet(selectedCategories) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const data = getPackagingData();
 
+  // Obtener los mapas de datos necesarios para el inventario
+  const inventoryMap = getCurrentInventory();
+  const skuSheet = ss.getSheetByName('SKU');
+  if (!skuSheet) throw new Error("La hoja 'SKU' no fue encontrada.");
+  const skuMap = getSkuMap(skuSheet);
+
   // Crear una hoja con un nombre único basado en la fecha
   const date = new Date();
   const formattedDate = Utilities.formatDate(date, Session.getScriptTimeZone(), "yyyy-MM-dd");
@@ -1550,15 +1556,14 @@ function generatePackagingSheet(selectedCategories) {
   currentRow += 2; // Espacio después del título
 
   // Encabezados de la tabla
-  const headers = ["Cantidad", "Inventario", "Nombre Producto"];
+  const headers = ["Cantidad", "Inventario Actual", "Nombre Producto"];
   const headerRange = sheet.getRange(currentRow, 1, 1, 3);
-  headerRange.setValues([headers]).setFontWeight("bold");
+  headerRange.setValues([headers]).setFontWeight("bold").setHorizontalAlignment("center").setVerticalAlignment("middle");
   sheet.setFrozenRows(currentRow);
   currentRow++;
 
   // Llenar datos por categoría
   selectedCategories.sort().forEach(category => {
-    // Fila de cabecera de categoría
     sheet.getRange(currentRow, 1, 1, 3).merge().setValue(category.toUpperCase()).setFontWeight("bold").setHorizontalAlignment("center").setBackground("#f2f2f2");
     currentRow++;
 
@@ -1567,12 +1572,19 @@ function generatePackagingSheet(selectedCategories) {
 
     const productRows = [];
     sortedProductNames.forEach(productName => {
-      // Dejar la columna "Inventario" en blanco como en la versión original
-      productRows.push([products[productName], '', productName]);
+      const skuInfo = skuMap[productName];
+      const baseProduct = skuInfo ? skuInfo.base : null;
+      const inventoryInfo = baseProduct ? inventoryMap[baseProduct] : null;
+      // Formatear el valor del inventario para incluir la unidad
+      const inventoryValue = inventoryInfo ? `${inventoryInfo.quantity} ${inventoryInfo.unit}` : 'No encontrado';
+
+      productRows.push([products[productName], inventoryValue, productName]);
     });
 
     if (productRows.length > 0) {
-      sheet.getRange(currentRow, 1, productRows.length, 3).setValues(productRows);
+      const dataRange = sheet.getRange(currentRow, 1, productRows.length, 3);
+      dataRange.setValues(productRows);
+      dataRange.setHorizontalAlignment("center").setVerticalAlignment("middle");
       currentRow += productRows.length;
     }
     currentRow++; // Añadir una fila en blanco entre categorías para mayor claridad
@@ -1580,11 +1592,12 @@ function generatePackagingSheet(selectedCategories) {
 
   // Ajustar anchos de columna
   sheet.setColumnWidth(1, 100); // Ancho para "Cantidad"
-  sheet.setColumnWidth(2, 100); // Ancho para "Inventario"
+  sheet.setColumnWidth(2, 150); // Ancho para "Inventario Actual"
   sheet.setColumnWidth(3, 350); // Ancho para "Nombre Producto"
 
-  // Devolver un objeto de éxito en lugar de una URL
-  return { status: "success", sheetName: sheetName };
+  // Construir y devolver la URL del PDF para impresión inmediata
+  const printUrl = `https://docs.google.com/spreadsheets/d/${ss.getId()}/export?format=pdf&gid=${sheet.getSheetId()}&portrait=true&fitw=true&gridlines=true&printtitle=false`;
+  return printUrl;
 }
 
 // --- FLUJO DE ADQUISICIONES ---
