@@ -9,9 +9,12 @@
     :root{ --gap:12px; }
     body{ font-family: Inter, Roboto, Arial, sans-serif; margin:0; padding: 16px; background-color: #f0f2f5; }
     .main-container { max-width: 1200px; margin: auto; }
-    .row{ display:grid; grid-template-columns: 1fr 1fr; gap: var(--gap); align-items:stretch; }
+    .row{ display:grid; grid-template-columns: 1fr auto 1fr; gap: var(--gap); align-items:stretch; }
     .card{ border:1px solid #e5e7eb; border-radius:14px; padding:14px; box-shadow:0 1px 4px rgba(0,0,0,.06); background:#fff; }
     .card h2, .card h3{ margin:0 0 10px 0; font-size:16px; }
+    .summary-card { text-align: center; justify-content: center; display: flex; flex-direction: column; }
+    .summary-card h3 { font-size: 28px; margin: 0; color: #0d6efd; }
+    .summary-card p { margin: 4px 0 0 0; font-size: 13px; color: #6b7280; }
     .controls{ display:flex; gap:8px; flex-wrap: wrap; align-items:flex-end; }
     .controls label{ display:block; font-size:12px; color:#555; margin-bottom:4px; }
     .controls input{ height:36px; border:1px solid #d1d5db; border-radius:10px; padding:0 10px; min-width:220px; box-sizing: border-box; }
@@ -148,6 +151,19 @@
       <div id="chart-note" class="muted small">Fuente: <em>Orders</em></div>
     </div>
 
+    <!-- CENTRO: Resumen de Preparación -->
+    <div class="card summary-card">
+      <div>
+        <h3 id="pedidos-hoy">--</h3>
+        <p>Pedidos a Preparar</p>
+      </div>
+      <hr style="width:80%; border:none; border-top:1px solid #eee; margin: 16px auto;">
+      <div>
+        <h3 id="paquetes-hoy">--</h3>
+        <p>Paquetes a Preparar</p>
+      </div>
+    </div>
+
     <!-- DERECHA: Buscador -->
     <div class="card">
       <h3>Buscador (Producto / Nº Pedido)</h3>
@@ -237,7 +253,22 @@
   <script>
     // --- LÓGICA PARA NUEVO DASHBOARD (DEL USUARIO) ---
     google.charts.load('current', {'packages':['corechart']});
-    google.charts.setOnLoadCallback(drawComunas);
+    google.charts.setOnLoadCallback(function() {
+      drawComunas();
+      drawSummary();
+    });
+
+    function drawSummary() {
+      google.script.run.withSuccessHandler(res => {
+        if (res && res.ok) {
+          document.getElementById('pedidos-hoy').innerText = res.data.pedidosHoy;
+          document.getElementById('paquetes-hoy').innerText = res.data.paquetesHoy;
+        } else {
+          document.getElementById('pedidos-hoy').innerText = 'Error';
+          document.getElementById('paquetes-hoy').innerText = 'Error';
+        }
+      }).getDashboardSummary();
+    }
 
     function drawComunas(){
       google.script.run.withSuccessHandler(res => {
