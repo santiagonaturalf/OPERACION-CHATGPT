@@ -786,304 +786,200 @@ function getReconciliationData() {
   };
 }
 
-
-// --- LÓGICA DEL DASHBOARD ---
+// --- DASHBOARD V2 (IMPLEMENTACIÓN DEL USUARIO) ---
 
 function showDashboard() {
-  const html = HtmlService.createHtmlOutputFromFile('DashboardDialog')
+  const html = HtmlService.createTemplateFromFile('DashboardDialog').evaluate()
     .setWidth(1200)
     .setHeight(800);
-  SpreadsheetApp.getUi().showModalDialog(html, 'Dashboard de Operaciones');
+  SpreadsheetApp.getUi().showModalDialog(html, 'Dashboard Operaciones SNF');
 }
 
-// --- FUNCIONES DE LA APLICACIÓN WEB ---
+/*************************** CONFIG ***************************/
+// Nombre de hojas esperadas
+const SH_ORDENES            = 'Orders';          // Debe contener cabeza con: N° Pedido, Nombre Producto, Cantidad, Comuna (o similar)
+const SH_LISTA_ADQ          = 'Lista de Adquisiciones';// Debe contener las columnas del ejemplo entregado
 
+// Claves de encabezados (mapeo robusto por nombre)
+const H_ORDENES = {
+  pedido:  ['N° Pedido','Nº Pedido','Numero Pedido','Número de Pedido','Pedido'],
+  producto:['Nombre Producto','Producto','Item','Ítem'],
+  cantidad:['Cantidad','Qty','Cantidad Venta','Cant'],
+  comuna:  ['Comuna','Ciudad','Sector']
+};
+
+const H_ADQ = {
+  productoBase:        ['Producto Base','Producto','Nombre Producto','Base'],
+  cantComprar:         ['Cantidad a Comprar','Cantidad','Cant Comprar'],
+  formatoCompra:       ['Formato de Compra','Formato','Presentación'],
+  invActual:           ['Inventario Actual','Stock Actual','Inventario'],
+  unidadInvActual:     ['Unidad Inventario Actual','Unidad Inv Actual','Unidad Inventario'],
+  necesidadVenta:      ['Necesidad de Venta','Necesidad','Venta Necesaria'],
+  unidadVenta:         ['Unidad Venta','Unidad Venta (Nombre)','Unidad Vta'],
+  invFinalizar:        ['Inventario al Finalizar','Inventario Final','Stock Final'],
+  unidadInvFinal:      ['Unidad Inventario Final','Unidad Inv Final','Unidad Final'],
+  precioAdqAnterior:   ['Precio Adq. Anterior','Precio Anterior'],
+  precioAdqHoy:        ['Precio Adq. HOY','Precio Hoy','Precio Actual'],
+  proveedor:           ['Proveedor','Vendor']
+};
+
+/*************************** UTILIDADES ***************************/
+function getSheet_(name) {
+  const ss = SpreadsheetApp.getActive();
+  const sh = ss.getSheetByName(name);
+  if (!sh) throw new Error('No existe la hoja: ' + name);
+  return sh;
+}
+
+function mapHeaders_(row) {
+  const map = {};
+  row.forEach((h, i) => {
+    map[(h||'').toString().trim()] = i;
+  });
+  return map;
+}
+
+function pickIdx_(headerIndexMap, aliases){
+  for (const alias of aliases){
+    const k = Object.keys(headerIndexMap).find(x => x.toLowerCase() === alias.toLowerCase());
+    if (k) return headerIndexMap[k];
+  }
+  // También aceptar contiene (más laxo)
+  for (const alias of aliases){
+    const k = Object.keys(headerIndexMap).find(x => x.toLowerCase().includes(alias.toLowerCase()));
+    if (k) return headerIndexMap[k];
+  }
+  return -1;
+}
+
+function getHeaderIndexes_(sh, headerAliases){
+  const lastCol = sh.getLastColumn();
+  if (lastCol === 0) throw new Error('Hoja vacía: ' + sh.getName());
+  const headers = sh.getRange(1,1,1,lastCol).getValues()[0];
+  const imap = mapHeaders_(headers);
+  const out = {};
+  Object.keys(headerAliases).forEach(key => {
+    out[key] = pickIdx_(imap, headerAliases[key]);
+  });
+  return out;
+}
+
+/*************************** DISTRIBUCIÓN POR COMUNAS ***************************/
 /**
- * Punto de entrada principal para la aplicación web. Sirve el HTML del dashboard.
- * @param {Object} e - El objeto de evento de la solicitud GET.
- * @returns {HtmlOutput} El contenido HTML para ser renderizado.
+ * Devuelve [{comuna, cantidadPedidos}]
  */
-function doGet(e) {
-  return HtmlService.createHtmlOutputFromFile('DashboardDialog')
-    .setTitle('Dashboard de Operaciones')
+function getDistribucionComunas(){
+  const sh = getSheet_(SH_ORDENES);
+  const idx = getHeaderIndexes_(sh, H_ORDENES);
+  if (idx.comuna < 0 || idx.pedido < 0) {
+    return { ok:false, error:'No se ubicaron columnas de Comuna y/o Pedido en "' + SH_ORDENES + '".' };
+  }
+  const data = sh.getRange(2,1,Math.max(0, sh.getLastRow()-1), sh.getLastColumn()).getValues();
+  const map = new Map();
+  for (const row of data){
+    const comuna = (row[idx.comuna]||'SIN COMUNA').toString().trim();
+    if (!comuna) continue;
+    map.set(comuna, (map.get(comuna)||0)+1);
+  }
+  const arr = Array.from(map, ([comuna, cantidadPedidos]) => ({comuna, cantidadPedidos}));
+  arr.sort((a,b)=> b.cantidadPedidos - a.cantidadPedidos);
+  return { ok:true, items: arr };
+}
+
+/*************************** BUSCADOR ***************************/
+/**
+ * Busca por nombre de producto (parcial, case-insensitive) y/o Nº de Pedido.
+ * Responde filas agregadas por producto con: { producto, cantidadVendida, pedidos:[...], inventarioActual, adquisicionesHoy:{cantidad, formato}, inventarioFinal }
+ */
+function buscarProductosYPedidos(filtro){
+  filtro = filtro || {}; // {productoText, numeroPedido}
+  const productoText = (filtro.productoText||'').toString().trim().toLowerCase();
+  const numeroPedido = (filtro.numeroPedido||'').toString().trim();
+
+  // 1) Ordenes (para cantidades y pedidos asociados)
+  const shOrd = getSheet_(SH_ORDENES);
+  const idxOrd = getHeaderIndexes_(shOrd, H_ORDENES);
+  if (idxOrd.producto < 0 || idxOrd.cantidad < 0) {
+    return { ok:false, error:'Faltan columnas en "' + SH_ORDENES + '" (Producto/Cantidad).' };
+  }
+  const dataOrd = shOrd.getRange(2,1,Math.max(0, shOrd.getLastRow()-1), shOrd.getLastColumn()).getValues();
+
+  // 2) Lista de Adquisiciones (para inventarios y adquisiciones de hoy)
+  const shAdq = getSheet_(SH_LISTA_ADQ);
+  const idxAdq = getHeaderIndexes_(shAdq, H_ADQ);
+  const dataAdq = shAdq.getRange(2,1,Math.max(0, shAdq.getLastRow()-1), shAdq.getLastColumn()).getValues();
+
+  // Mapa rápido productoBase -> info de adquisiciones/inventarios
+  const infoAdq = new Map();
+  for (const r of dataAdq){
+    const p = (idxAdq.productoBase>=0 ? r[idxAdq.productoBase] : '').toString().trim();
+    if (!p) continue;
+    infoAdq.set(p.toLowerCase(), {
+      inventarioActual: r[idxAdq.invActual] ?? '',
+      unidadInvActual:  r[idxAdq.unidadInvActual] ?? '',
+      adquisicionesHoy: {
+        cantidad: r[idxAdq.cantComprar] ?? '',
+        formato:  r[idxAdq.formatoCompra] ?? ''
+      },
+      inventarioFinal:  r[idxAdq.invFinalizar] ?? '',
+      unidadInvFinal:   r[idxAdq.unidadInvFinal] ?? ''
+    });
+  }
+
+  // Agregación por producto
+  const agg = new Map(); // key: producto (tal cual aparece en Ordenes)
+  for (const r of dataOrd){
+    const prod = (r[idxOrd.producto]||'').toString().trim();
+    if (!prod) continue;
+    if (productoText && !prod.toLowerCase().includes(productoText)) continue;
+    if (numeroPedido){
+      const pedidoVal = idxOrd.pedido>=0 ? (r[idxOrd.pedido]||'').toString().trim() : '';
+      if (pedidoVal !== numeroPedido) continue;
+    }
+    const qty = parseFloat(r[idxOrd.cantidad]) || 0;
+    const pedido = idxOrd.pedido>=0 ? (r[idxOrd.pedido]||'').toString().trim() : '';
+
+    if (!agg.has(prod)) agg.set(prod, { cantidadVendida:0, pedidos:new Set() });
+    const obj = agg.get(prod);
+    obj.cantidadVendida += qty;
+    if (pedido) obj.pedidos.add(pedido);
+  }
+
+  // Empaquetar respuesta + merge con adquisiciones/inventarios (por producto base, intentando normalizar)
+  const items = [];
+  for (const [producto, val] of agg.entries()){
+    // Heurística simple para mapear a Producto Base: usar primera palabra o el nombre completo; probar variantes
+    const keyCandidates = [producto, producto.split(' ')[0]]
+      .map(s => s.toLowerCase());
+    let info = null;
+    for (const k of keyCandidates){
+      if (infoAdq.has(k)) { info = infoAdq.get(k); break; }
+    }
+
+    items.push({
+      producto,
+      cantidadVendida: val.cantidadVendida,
+      pedidos: Array.from(val.pedidos),
+      inventarioActual: info ? info.inventarioActual + (info.unidadInvActual?(' ' + info.unidadInvActual):'') : '',
+      adquisicionesHoy: info ? info.adquisicionesHoy : {cantidad:'', formato:''},
+      inventarioFinal:  info ? info.inventarioFinal + (info.unidadInvFinal?(' ' + info.unidadInvFinal):'') : ''
+    });
+  }
+
+  // Ordenar por cantidad vendida desc
+  items.sort((a,b)=> (b.cantidadVendida||0) - (a.cantidadVendida||0));
+  return { ok:true, items };
+}
+
+/*************************** BOOTSTRAP ***************************/
+function doGet(){
+  return HtmlService.createTemplateFromFile('DashboardDialog').evaluate()
+    .setTitle('Dashboard Operaciones SNF')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 
-/**
- * Devuelve la URL de la aplicación web implementada.
- * Esta función es llamada por el diálogo lanzador para saber qué URL abrir.
- * @returns {string} La URL de la aplicación web.
- */
-function getWebAppUrl() {
-  // Para que esto funcione, el script debe estar implementado como una aplicación web.
-  // Ir a "Implementar" > "Nueva implementación", seleccionar "Aplicación web"
-  // y asegurarse de que el acceso esté configurado como "Cualquier usuario" o según sea necesario.
-  return ScriptApp.getService().getUrl();
-}
-
-function startDashboardRefresh() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const ordersSheet = ss.getSheetByName('Orders');
-  if (!ordersSheet) {
-    throw new Error('No se encontró la hoja "Orders".');
-  }
-  const orderData = ordersSheet.getRange("A2:B" + ordersSheet.getLastRow()).getValues();
-  const customerOrders = {};
-  orderData.forEach(([orderNumber, customerName]) => {
-    if (customerName) {
-      if (!customerOrders[customerName]) customerOrders[customerName] = new Set();
-      customerOrders[customerName].add(orderNumber);
-    }
-  });
-  const duplicates = {};
-  for (const customer in customerOrders) {
-    if (customerOrders[customer].size > 1) {
-      duplicates[customer] = Array.from(customerOrders[customer]);
-    }
-  }
-  if (Object.keys(duplicates).length > 0) {
-    showDuplicateDialog(duplicates);
-  } else {
-    checkForNewSuppliers();
-  }
-}
-
-function showDuplicateDialog(duplicateData) {
-  const template = HtmlService.createTemplateFromFile('DuplicateDialog');
-  template.duplicates = JSON.stringify(duplicateData);
-  const html = template.evaluate().setWidth(700).setHeight(500);
-  SpreadsheetApp.getUi().showModalDialog(html, 'Resolver Pedidos Duplicados');
-}
-
-function deleteOrdersByNumber(orderNumbersToDelete) {
-  if (!orderNumbersToDelete || orderNumbersToDelete.length === 0) return "No se seleccionó ningún pedido para eliminar.";
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName('Orders');
-  const data = sheet.getDataRange().getValues();
-  const rowsToDelete = [];
-  for (let i = data.length - 1; i >= 1; i--) {
-    if (orderNumbersToDelete.includes(String(data[i][0]))) {
-      rowsToDelete.push(i + 1);
-    }
-  }
-  if (rowsToDelete.length > 0) {
-    rowsToDelete.forEach(rowNum => sheet.deleteRow(rowNum));
-    checkForNewSuppliers();
-    return `Se eliminaron ${rowsToDelete.length} filas. Continuando con el chequeo de proveedores...`;
-  } else {
-    return "No se encontraron los pedidos seleccionados.";
-  }
-}
-
-function checkForNewSuppliers() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const skuSheet = ss.getSheetByName("SKU");
-  const proveedoresSheet = ss.getSheetByName("Proveedores");
-  if (!skuSheet || !proveedoresSheet) {
-    SpreadsheetApp.getUi().alert("Faltan las hojas 'SKU' o 'Proveedores'.");
-    return;
-  }
-  const skuSuppliers = new Set(skuSheet.getRange("I2:I" + skuSheet.getLastRow()).getValues().flat().filter(String));
-  const existingSuppliers = new Set(proveedoresSheet.getRange("A2:A" + proveedoresSheet.getLastRow()).getValues().flat().filter(String));
-  const newSuppliers = [...skuSuppliers].filter(s => !existingSuppliers.has(s));
-  if (newSuppliers.length > 0) {
-    showNewSupplierDialog(newSuppliers);
-  } else {
-    SpreadsheetApp.getUi().alert("Todos los datos están limpios y consistentes. Ahora puedes cargar las métricas en el dashboard.");
-  }
-}
-
-function showNewSupplierDialog(newSuppliers) {
-  const template = HtmlService.createTemplateFromFile('NewSupplierDialog');
-  template.newSuppliers = JSON.stringify(newSuppliers);
-  const html = template.evaluate().setWidth(600).setHeight(400);
-  SpreadsheetApp.getUi().showModalDialog(html, 'Añadir Teléfonos de Proveedores Nuevos');
-}
-
-function saveNewSuppliers(supplierData) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const proveedoresSheet = ss.getSheetByName("Proveedores");
-  const dataToAppend = Object.entries(supplierData);
-  if (dataToAppend.length > 0) {
-    proveedoresSheet.getRange(proveedoresSheet.getLastRow() + 1, 1, dataToAppend.length, 2).setValues(dataToAppend);
-  }
-  return "Proveedores guardados. Ya puedes cargar las métricas en el dashboard.";
-}
-
-// --- FUNCIONES PÚBLICAS PARA EL DASHBOARD ---
-
-function getDashboardSummaryMetrics() {
-  try {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const ordersSheet = ss.getSheetByName('Orders');
-
-    // --- Lógica de costos duplicada para independencia ---
-    const costosSheet = ss.getSheetByName('CostosVenta');
-    const productCostMap = new Map();
-    if (costosSheet && costosSheet.getLastRow() > 1) {
-      const costosData = costosSheet.getRange("B2:C" + costosSheet.getLastRow()).getValues();
-      for (let i = costosData.length - 1; i >= 0; i--) {
-        const row = costosData[i];
-        const productName = row[0];
-        const cost = parseFloat(String(row[1]).replace(',', '.'));
-        if (productName && !productCostMap.has(productName) && !isNaN(cost)) {
-          productCostMap.set(productName, cost);
-        }
-      }
-    }
-    // --- Fin de lógica duplicada ---
-
-    let totalSales = 0;
-    let totalCosts = 0;
-    const orderIds = new Set();
-
-    if (ordersSheet && ordersSheet.getLastRow() > 1) {
-        const ordersData = ordersSheet.getRange("A2:M" + ordersSheet.getLastRow()).getValues();
-        ordersData.forEach(row => {
-            const orderId = row[0];
-            const productName = row[9]; // Columna J: Nombre Producto
-            const quantity = row[10];
-            const lineTotal = row[12];
-
-            if (orderId) orderIds.add(orderId);
-            if (lineTotal) totalSales += parseFloat(lineTotal) || 0;
-
-            if (productName && quantity) {
-                if (productCostMap.has(productName)) {
-                    totalCosts += productCostMap.get(productName) * (parseInt(quantity, 10) || 0);
-                } else {
-                    // Fallback: use the line total for this item as its cost for margin calculation
-                    totalCosts += parseFloat(String(row[12]).replace(',', '.')) || 0;
-                }
-            }
-        });
-    }
-
-    const grossMargin = totalSales - totalCosts;
-    const marginPercentage = totalSales > 0 ? (grossMargin / totalSales) * 100 : 0;
-
-    return {
-      totalSales: totalSales,
-      orderCount: orderIds.size,
-      grossMargin: grossMargin,
-      marginPercentage: marginPercentage
-    };
-  } catch (e) {
-    Logger.log(`ERROR en getDashboardSummaryMetrics: ${e.stack}`);
-    return { error: `Error en Métricas de Resumen: ${e.message}` };
-  }
-}
-
-function getDashboardCostMetrics() {
-  try {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const ordersSheet = ss.getSheetByName('Orders');
-    const costosSheet = ss.getSheetByName('CostosVenta');
-
-    const productCostMap = new Map();
-    if (costosSheet && costosSheet.getLastRow() > 1) {
-      const costosData = costosSheet.getRange("B2:C" + costosSheet.getLastRow()).getValues();
-      for (let i = costosData.length - 1; i >= 0; i--) {
-        const row = costosData[i];
-        const productName = row[0];
-        const cost = parseFloat(String(row[1]).replace(',', '.'));
-        if (productName && !productCostMap.has(productName) && !isNaN(cost)) {
-          productCostMap.set(productName, cost);
-        }
-      }
-    }
-
-    let totalCosts = 0;
-    if (ordersSheet && ordersSheet.getLastRow() > 1) {
-        // Read up to column M (13) to include Line Total
-        const ordersData = ordersSheet.getRange("A2:M" + ordersSheet.getLastRow()).getValues();
-        const lineTotalCol = 12; // Column M
-        
-        ordersData.forEach(row => {
-            const productName = row[9]; // Columna J: Nombre Producto
-            const quantity = row[10];   // Columna K
-            
-            if (productName && quantity) {
-                if (productCostMap.has(productName)) {
-                    totalCosts += productCostMap.get(productName) * (parseInt(quantity, 10) || 0);
-                } else {
-                    // Fallback: use the line total for this item as its cost
-                    const lineTotal = parseFloat(String(row[lineTotalCol]).replace(',', '.')) || 0;
-                    totalCosts += lineTotal;
-                }
-            }
-        });
-    }
-
-    return {
-      totalCosts: totalCosts,
-      productsWithoutCostCount: 0, // This is now 0 as we have a fallback
-      productsWithoutCostNames: [] // This is now empty
-    };
-  } catch (e) {
-    Logger.log(`ERROR en getDashboardCostMetrics: ${e.stack}`);
-    return { error: `Error en Métricas de Costos: ${e.message}` };
-  }
-}
-
-function getDashboardTopProducts() {
-  try {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const ordersSheet = ss.getSheetByName('Orders');
-    const productQuantities = {};
-
-    if (ordersSheet && ordersSheet.getLastRow() > 1) {
-        const ordersData = ordersSheet.getRange("J2:K" + ordersSheet.getLastRow()).getValues(); // Leer desde la columna J
-        ordersData.forEach(row => {
-            const productName = row[0]; // J es index 0 en este rango
-            const quantity = row[1];    // K es index 1 en este rango
-            if (productName && quantity) {
-                productQuantities[productName] = (productQuantities[productName] || 0) + (parseInt(quantity, 10) || 0);
-            }
-        });
-    }
-
-    const topSoldProducts = Object.entries(productQuantities).sort(([, a], [, b]) => b - a).slice(0, 5);
-    return topSoldProducts;
-  } catch (e) {
-    Logger.log(`ERROR en getDashboardTopProducts: ${e.stack}`);
-    return { error: `Error en Top Productos: ${e.message}` };
-  }
-}
-
-function getDashboardCommuneDistribution() {
-  try {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const ordersSheet = ss.getSheetByName('Orders');
-    const communeCounts = {};
-
-    if (ordersSheet && ordersSheet.getLastRow() > 1) {
-        const ordersData = ordersSheet.getRange("A2:G" + ordersSheet.getLastRow()).getValues();
-        ordersData.forEach(row => {
-            const orderId = row[0];     // A es index 0
-            const commune = row[6];     // G es index 6
-            if (commune) {
-                const orderKey = `${orderId}-${commune}`;
-                if (!communeCounts[orderKey]) {
-                    communeCounts[orderKey] = commune;
-                }
-            }
-        });
-    }
-
-    const communeTally = {};
-    Object.values(communeCounts).forEach(c => communeTally[c] = (communeTally[c] || 0) + 1);
-    const communeDistribution = Object.entries(communeTally).sort(([, a], [, b]) => b - a);
-    return communeDistribution;
-  } catch (e) {
-    Logger.log(`ERROR en getDashboardCommuneDistribution: ${e.stack}`);
-    return { error: `Error en Distribución por Comuna: ${e.message}` };
-  }
-}
-
-
-function futureModulePlaceholder() {
-  SpreadsheetApp.getUi().alert("Este módulo será implementado en una futura actualización.");
+function include(filename){
+  return HtmlService.createHtmlOutputFromFile(filename).getContent();
 }
 
 // --- FLUJO DE ENVASADO ---
