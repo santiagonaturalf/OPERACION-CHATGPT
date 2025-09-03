@@ -273,6 +273,54 @@ function deleteOrder(orderId) {
 }
 
 
+/**
+ * Marca filas específicas en la hoja "Orders" como eliminadas.
+ * Acepta un array de números de fila.
+ */
+function deleteSelectedRows(rowNumbers) {
+  if (!rowNumbers || !Array.isArray(rowNumbers) || rowNumbers.length === 0) {
+    return { status: 'error', message: 'No se proporcionaron filas para eliminar.' };
+  }
+
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = getSheet_('Orders');
+    const idx = getHeaderIndexes_(sheet, H_ORDENES);
+
+    if (idx.cantidad < 0) {
+      return { status: 'error', message: 'No se encontró la columna "Cantidad" en la hoja "Orders".' };
+    }
+
+    let rowsUpdated = 0;
+    rowNumbers.forEach(rowNum => {
+      // Validar que el número de fila es un número válido y mayor que 1 (para no afectar el encabezado)
+      const n = parseInt(rowNum, 10);
+      if (isNaN(n) || n <= 1) return;
+
+      const rowRange = sheet.getRange(n, 1, 1, sheet.getLastColumn());
+      rowRange.setBackground('#ff0000'); // Fondo rojo
+
+      const quantityCell = sheet.getRange(n, idx.cantidad + 1);
+      const currentQuantity = quantityCell.getValue();
+      if (!String(currentQuantity).startsWith('E')) {
+        quantityCell.setValue('E' + currentQuantity);
+      }
+      rowsUpdated++;
+    });
+
+    if (rowsUpdated > 0) {
+      SpreadsheetApp.flush();
+      return { status: 'success', message: `${rowsUpdated} fila(s) marcada(s) como eliminada(s).` };
+    } else {
+      return { status: 'error', message: 'No se actualizó ninguna fila. Verifica los números de fila proporcionados.' };
+    }
+  } catch (e) {
+    Logger.log(`Error en deleteSelectedRows: ${e.stack}`);
+    return { status: 'error', message: `Ocurrió un error al eliminar las filas: ${e.message}` };
+  }
+}
+
+
 // --- LÓGICA DE COMANDA RUTAS ---
 
 function showComandaRutasDialog() {
@@ -921,6 +969,68 @@ function showDeletedOrders() {
 }
 
 // --- DASHBOARD V2 (IMPLEMENTACIÓN DEL USUARIO) ---
+
+/**
+ * Obtiene los datos de los pedidos para el nuevo panel de eliminación.
+ * Agrupa los artículos por número de pedido e incluye el número de fila de cada artículo.
+ * Omite los artículos que ya han sido marcados como eliminados (con 'E' en la cantidad).
+ */
+function getOrdersForDeletion() {
+  try {
+    const sheet = getSheet_('Orders');
+    const data = sheet.getDataRange().getValues();
+    const headers = data.shift(); // Saca los encabezados
+
+    // Usar el indexer para encontrar columnas de forma robusta
+    const idx = indexer(headers);
+    // Añadir índices para columnas que no están en el indexer estándar
+    const norm = s => String(s || '').toLowerCase().trim();
+    idx.producto = headers.findIndex(h => ['item name', 'nombre producto', 'producto'].includes(norm(h)));
+    idx.cantidad = headers.findIndex(h => ['item quantity', 'cantidad'].includes(norm(h)));
+
+    // Validar que las columnas esenciales existen
+    if (idx.numPedido < 0 || idx.producto < 0 || idx.cantidad < 0) {
+      throw new Error("No se encontraron columnas críticas como 'Número de pedido', 'Item Name' o 'Item Quantity'.");
+    }
+
+    const orders = {};
+
+    data.forEach((row, i) => {
+      const orderId = String(row[idx.numPedido] || '').trim();
+      const quantity = String(row[idx.cantidad] || '');
+
+      // Omitir filas sin ID de pedido o ya marcadas como eliminadas
+      if (!orderId || quantity.startsWith('E')) {
+        return;
+      }
+
+      // Si es la primera vez que vemos este ID de pedido, creamos la entrada principal
+      if (!orders[orderId]) {
+        orders[orderId] = {
+          orderNumber: orderId,
+          customerName: row[idx.nombre] || 'N/A',
+          status: row[idx.estado] || 'N/A',
+          commune: row[idx.comuna] || 'N/A',
+          van: row[idx.furgon] || 'N/A',
+          items: []
+        };
+      }
+
+      // Añadir el artículo (producto) a la lista de ese pedido
+      orders[orderId].items.push({
+        productName: row[idx.producto] || 'Producto sin nombre',
+        quantity: quantity,
+        rowNumber: i + 2 // i es 0-indexed y la fila 1 era el encabezado, así que +2
+      });
+    });
+
+    return { ok: true, orders: orders };
+  } catch (e) {
+    Logger.log(`Error en getOrdersForDeletion: ${e.stack}`);
+    return { ok: false, error: e.toString() };
+  }
+}
+
 
 function showDashboard() {
   const html = HtmlService.createTemplateFromFile('DashboardDialog').evaluate()

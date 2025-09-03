@@ -50,6 +50,90 @@
       .result-body dl{ grid-template-columns: 1fr; }
       .actions-grid { grid-template-columns: 1fr; }
     }
+
+    /* --- ESTILOS PARA EL MODAL DE ELIMINACIÓN --- */
+    .delete-modal-overlay {
+      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(0,0,0,0.6);
+      display: none; /* Se muestra con JS */
+      justify-content: center;
+      align-items: center;
+      z-index: 1000;
+    }
+    .delete-modal-panel {
+      background: #fff;
+      border-radius: 14px;
+      padding: 24px;
+      width: 90%;
+      max-width: 1000px;
+      max-height: 90vh;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+    }
+    .delete-modal-panel h2 {
+      margin-top: 0;
+      margin-bottom: 16px;
+      border-bottom: 1px solid #eee;
+      padding-bottom: 12px;
+    }
+    #delete-search-input {
+      width: 100%;
+      padding: 10px;
+      margin-bottom: 16px;
+      border-radius: 8px;
+      border: 1px solid #ccc;
+      box-sizing: border-box;
+    }
+    #delete-accordion-container {
+      overflow-y: auto;
+      flex-grow: 1;
+      padding-right: 10px; /* Para que la barra de scroll no se pegue */
+    }
+    .delete-modal-footer {
+      margin-top: 20px;
+      text-align: right;
+      border-top: 1px solid #eee;
+      padding-top: 16px;
+    }
+    .delete-modal-footer button {
+        padding: 10px 20px;
+        border: none;
+        border-radius: 8px;
+        cursor: pointer;
+        font-weight: bold;
+        margin-left: 10px;
+    }
+    #confirm-delete-btn { background-color: #dc3545; color: white; }
+    #cancel-delete-btn { background-color: #6c757d; color: white; }
+
+    /* Estilos del Acordeón */
+    .del-order-group { border: 1px solid #ddd; border-radius: 8px; margin-bottom: 8px; overflow: hidden; }
+    .del-order-header {
+      display: grid;
+      grid-template-columns: 20px 1fr 2fr 1fr 1fr 1.5fr 24px;
+      gap: 10px;
+      align-items: center;
+      padding: 10px;
+      background: #f7f7f7;
+      cursor: pointer;
+      font-size: 12px;
+    }
+    .del-order-header:hover { background: #efefef; }
+    .del-order-header > div { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .del-order-header strong { font-size: 13px; }
+    .del-order-body { display: none; padding: 0 10px 10px 10px; }
+    .del-order-item {
+      display: grid;
+      grid-template-columns: 20px 1fr 80px;
+      gap: 10px;
+      align-items: center;
+      padding: 8px 5px 8px 30px; /* Indentación para los productos */
+      border-top: 1px solid #eee;
+      font-size: 13px;
+    }
+     .del-order-item:first-child { border-top: none; margin-top: 5px; }
+
   </style>
 </head>
 <body>
@@ -113,6 +197,23 @@
         </div>
     </div>
     <div id="status-log">Bienvenido.</div>
+  </div>
+</div>
+
+<!-- MODAL PARA ELIMINAR PEDIDOS -->
+<div id="delete-modal-overlay" class="delete-modal-overlay">
+  <div class="delete-modal-panel">
+    <h2>Eliminar Pedidos o Productos</h2>
+    <input type="text" id="delete-search-input" placeholder="Buscar por Nº Pedido, Cliente, Comuna...">
+
+    <div id="delete-accordion-container">
+      <!-- El contenido del acordeón se generará aquí con JavaScript -->
+    </div>
+
+    <div class="delete-modal-footer">
+      <button id="cancel-delete-btn">Cancelar</button>
+      <button id="confirm-delete-btn">Confirmar Eliminación</button>
+    </div>
   </div>
 </div>
 
@@ -242,25 +343,172 @@
         google.script.run.showAppendOrdersDialog();
     });
 
-    document.getElementById('delete-order-btn').addEventListener('click', () => {
-        const orderId = prompt('Por favor, ingrese el Número de Pedido a eliminar:');
-        if (orderId && orderId.trim() !== '') {
-            setLoadingState(true, `Marcando pedido #${orderId} como eliminado...`);
-            google.script.run
-                .withSuccessHandler((response) => {
-                    if(response.status === 'success') {
-                        handleSuccess(response.message);
-                    } else {
-                        handleError({ message: response.message });
-                    }
-                })
-                .withFailureHandler(handleError)
-                .deleteOrder(orderId.trim());
-        }
-    });
-
     document.getElementById('view-deleted-btn').addEventListener('click', () => {
         google.script.run.showDeletedOrders();
+    });
+
+
+    // --- NUEVA LÓGICA PARA ELIMINAR PEDIDOS (MODAL) ---
+    const deleteModalOverlay = document.getElementById('delete-modal-overlay');
+    const accordionContainer = document.getElementById('delete-accordion-container');
+    const searchInput = document.getElementById('delete-search-input');
+    let allOrdersData = {}; // Cache para los datos de los pedidos
+
+    // 1. Abrir el modal
+    document.getElementById('delete-order-btn').addEventListener('click', () => {
+      setLoadingState(true, 'Cargando pedidos para eliminar...');
+      accordionContainer.innerHTML = 'Cargando...';
+      deleteModalOverlay.style.display = 'flex';
+
+      google.script.run
+        .withSuccessHandler(response => {
+          setLoadingState(false);
+          if (response.ok) {
+            allOrdersData = response.orders;
+            populateDeleteAccordion(allOrdersData);
+          } else {
+            accordionContainer.innerHTML = `<div class="empty">Error: ${escapeHtml(response.error)}</div>`;
+          }
+        })
+        .withFailureHandler(err => {
+            setLoadingState(false);
+            accordionContainer.innerHTML = `<div class="empty">Error: ${escapeHtml(err.message)}</div>`;
+        })
+        .getOrdersForDeletion();
+    });
+
+    // 2. Poblar el acordeón
+    function populateDeleteAccordion(orders) {
+      accordionContainer.innerHTML = ''; // Limpiar
+      const orderKeys = Object.keys(orders).sort((a,b) => b - a); // Ordenar por número de pedido descendente
+
+      if (orderKeys.length === 0) {
+        accordionContainer.innerHTML = '<div class="empty">No hay pedidos disponibles para eliminar.</div>';
+        return;
+      }
+
+      orderKeys.forEach(orderId => {
+        const order = orders[orderId];
+        const group = document.createElement('div');
+        group.className = 'del-order-group';
+        group.setAttribute('data-order-id', orderId);
+
+        let headerHTML = `
+          <div class="del-order-header">
+            <input type="checkbox" class="order-checkbox" title="Seleccionar todo el pedido">
+            <div><strong>#${escapeHtml(order.orderNumber)}</strong></div>
+            <div>${escapeHtml(order.customerName)}</div>
+            <div><span class="muted">${escapeHtml(order.status)}</span></div>
+            <div>${escapeHtml(order.commune)}</div>
+            <div><span class="muted">${escapeHtml(order.van)}</span></div>
+            <div class="toggle">+</div>
+          </div>`;
+
+        let bodyHTML = '<div class="del-order-body">';
+        order.items.forEach(item => {
+          bodyHTML += `
+            <div class="del-order-item">
+              <input type="checkbox" class="item-checkbox" data-row-number="${item.rowNumber}">
+              <div>${escapeHtml(item.productName)}</div>
+              <div>Qty: <strong>${escapeHtml(item.quantity)}</strong></div>
+            </div>`;
+        });
+        bodyHTML += '</div>';
+
+        group.innerHTML = headerHTML + bodyHTML;
+        accordionContainer.appendChild(group);
+      });
+
+      attachDeleteListeners();
+    }
+
+    // 3. Añadir todos los event listeners
+    function attachDeleteListeners() {
+      // Toggle del acordeón
+      document.querySelectorAll('.del-order-header').forEach(header => {
+        header.addEventListener('click', (e) => {
+          if (e.target.type === 'checkbox') return; // No toggles si se hace clic en el checkbox
+          const body = header.nextElementSibling;
+          const toggle = header.querySelector('.toggle');
+          const isOpen = body.style.display === 'block';
+          body.style.display = isOpen ? 'none' : 'block';
+          toggle.textContent = isOpen ? '+' : '−';
+        });
+      });
+
+      // Checkbox principal del pedido
+      document.querySelectorAll('.order-checkbox').forEach(orderChk => {
+        orderChk.addEventListener('change', (e) => {
+          const body = e.target.closest('.del-order-header').nextElementSibling;
+          body.querySelectorAll('.item-checkbox').forEach(itemChk => {
+            itemChk.checked = e.target.checked;
+          });
+        });
+      });
+
+      // Checkboxes de items individuales
+      document.querySelectorAll('.item-checkbox').forEach(itemChk => {
+        itemChk.addEventListener('change', (e) => {
+          const body = e.target.closest('.del-order-body');
+          const allItemCheckboxes = body.querySelectorAll('.item-checkbox');
+          const allChecked = Array.from(allItemCheckboxes).every(chk => chk.checked);
+          const orderCheckbox = body.previousElementSibling.querySelector('.order-checkbox');
+          orderCheckbox.checked = allChecked;
+        });
+      });
+    }
+
+    // 4. Lógica de búsqueda/filtrado
+    searchInput.addEventListener('keyup', () => {
+        const searchTerm = searchInput.value.toLowerCase().trim();
+        document.querySelectorAll('.del-order-group').forEach(group => {
+            const orderId = group.dataset.orderId;
+            const orderData = allOrdersData[orderId];
+            const searchableText = [
+                orderData.orderNumber,
+                orderData.customerName,
+                orderData.commune,
+                orderData.status,
+                orderData.van
+            ].join(' ').toLowerCase();
+
+            if (searchableText.includes(searchTerm)) {
+                group.style.display = '';
+            } else {
+                group.style.display = 'none';
+            }
+        });
+    });
+
+    // 5. Botones de Confirmar y Cancelar
+    document.getElementById('cancel-delete-btn').addEventListener('click', () => {
+      deleteModalOverlay.style.display = 'none';
+    });
+
+    document.getElementById('confirm-delete-btn').addEventListener('click', () => {
+      const selectedRows = [];
+      document.querySelectorAll('.item-checkbox:checked').forEach(chk => {
+        selectedRows.push(chk.dataset.rowNumber);
+      });
+
+      if (selectedRows.length === 0) {
+        alert('Por favor, selecciona al menos un producto para eliminar.');
+        return;
+      }
+
+      setLoadingState(true, `Eliminando ${selectedRows.length} fila(s)...`);
+
+      google.script.run
+        .withSuccessHandler(response => {
+           if (response.status === 'success') {
+                handleSuccess(response.message);
+                deleteModalOverlay.style.display = 'none';
+           } else {
+                handleError({ message: response.message });
+           }
+        })
+        .withFailureHandler(handleError)
+        .deleteSelectedRows(selectedRows);
     });
   </script>
 </body>
