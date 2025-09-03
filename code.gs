@@ -320,6 +320,52 @@ function deleteSelectedRows(rowNumbers) {
   }
 }
 
+/**
+ * Reincorpora filas específicas en la hoja "Orders" que fueron marcadas como eliminadas.
+ * Acepta un array de números de fila.
+ */
+function reincorporateSelectedRows(rowNumbers) {
+  if (!rowNumbers || !Array.isArray(rowNumbers) || rowNumbers.length === 0) {
+    return { status: 'error', message: 'No se proporcionaron filas para reincorporar.' };
+  }
+
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = getSheet_('Orders');
+    const idx = getHeaderIndexes_(sheet, H_ORDENES);
+
+    if (idx.cantidad < 0) {
+      return { status: 'error', message: 'No se encontró la columna "Cantidad" en la hoja "Orders".' };
+    }
+
+    let rowsUpdated = 0;
+    rowNumbers.forEach(rowNum => {
+      const n = parseInt(rowNum, 10);
+      if (isNaN(n) || n <= 1) return;
+
+      const rowRange = sheet.getRange(n, 1, 1, sheet.getLastColumn());
+      rowRange.setBackground('#d9ead3'); // Fondo verde para indicar reincorporación
+
+      const quantityCell = sheet.getRange(n, idx.cantidad + 1);
+      const currentQuantity = String(quantityCell.getValue());
+      if (currentQuantity.startsWith('E')) {
+        quantityCell.setValue(currentQuantity.substring(1));
+      }
+      rowsUpdated++;
+    });
+
+    if (rowsUpdated > 0) {
+      SpreadsheetApp.flush();
+      return { status: 'success', message: `${rowsUpdated} fila(s) reincorporada(s) exitosamente.` };
+    } else {
+      return { status: 'error', message: 'No se actualizó ninguna fila.' };
+    }
+  } catch (e) {
+    Logger.log(`Error en reincorporateSelectedRows: ${e.stack}`);
+    return { status: 'error', message: `Ocurrió un error al reincorporar las filas: ${e.message}` };
+  }
+}
+
 
 // --- LÓGICA DE COMANDA RUTAS ---
 
@@ -1027,6 +1073,61 @@ function getOrdersForDeletion() {
     return { ok: true, orders: orders };
   } catch (e) {
     Logger.log(`Error en getOrdersForDeletion: ${e.stack}`);
+    return { ok: false, error: e.toString() };
+  }
+}
+
+/**
+ * Obtiene los datos de los pedidos MARCADOS COMO ELIMINADOS para el panel de reincorporación.
+ * Solo incluye artículos cuya cantidad comienza con 'E'.
+ */
+function getDeletedOrders() {
+  try {
+    const sheet = getSheet_('Orders');
+    const data = sheet.getDataRange().getValues();
+    const headers = data.shift();
+
+    const idx = indexer(headers);
+    const norm = s => String(s || '').toLowerCase().trim();
+    idx.producto = headers.findIndex(h => ['item name', 'nombre producto', 'producto'].includes(norm(h)));
+    idx.cantidad = headers.findIndex(h => ['item quantity', 'cantidad'].includes(norm(h)));
+
+    if (idx.numPedido < 0 || idx.producto < 0 || idx.cantidad < 0) {
+      throw new Error("No se encontraron columnas críticas como 'Número de pedido', 'Item Name' o 'Item Quantity'.");
+    }
+
+    const orders = {};
+
+    data.forEach((row, i) => {
+      const orderId = String(row[idx.numPedido] || '').trim();
+      const quantity = String(row[idx.cantidad] || '');
+
+      // Solo incluir filas marcadas como eliminadas
+      if (!orderId || !quantity.startsWith('E')) {
+        return;
+      }
+
+      if (!orders[orderId]) {
+        orders[orderId] = {
+          orderNumber: orderId,
+          customerName: row[idx.nombre] || 'N/A',
+          status: row[idx.estado] || 'N/A',
+          commune: row[idx.comuna] || 'N/A',
+          van: row[idx.furgon] || 'N/A',
+          items: []
+        };
+      }
+
+      orders[orderId].items.push({
+        productName: row[idx.producto] || 'Producto sin nombre',
+        quantity: quantity.substring(1), // Quita la 'E' para mostrar el número original
+        rowNumber: i + 2
+      });
+    });
+
+    return { ok: true, orders: orders };
+  } catch (e) {
+    Logger.log(`Error en getDeletedOrders: ${e.stack}`);
     return { ok: false, error: e.toString() };
   }
 }

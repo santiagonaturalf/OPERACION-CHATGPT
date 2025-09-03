@@ -193,7 +193,7 @@
             <p><strong>Gestión de Pedidos:</strong></p>
             <button id="add-order-btn" class="action-button" style="background-color: #17a2b8;">➕ Agregar Pedido</button>
             <button id="delete-order-btn" class="action-button" style="background-color: #dc3545;">➖ Eliminar Pedido</button>
-            <button id="view-deleted-btn" class="action-button" style="background-color: #6c757d;">👀 Ver Eliminados</button>
+            <button id="view-deleted-btn" class="action-button" style="background-color: #0d6efd;">👀 Ver Eliminados o Reincorporar</button>
         </div>
     </div>
     <div id="status-log">Bienvenido.</div>
@@ -213,6 +213,23 @@
     <div class="delete-modal-footer">
       <button id="cancel-delete-btn">Cancelar</button>
       <button id="confirm-delete-btn">Confirmar Eliminación</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL PARA REINCORPORAR PEDIDOS -->
+<div id="reincorporate-modal-overlay" class="delete-modal-overlay">
+  <div class="delete-modal-panel">
+    <h2>Reincorporar Pedidos o Productos</h2>
+    <input type="text" id="reincorporate-search-input" placeholder="Buscar por Nº Pedido, Cliente, Comuna...">
+
+    <div id="reincorporate-accordion-container">
+      <!-- Contenido se generará con JS -->
+    </div>
+
+    <div class="delete-modal-footer">
+      <button id="cancel-reincorporate-btn">Cancelar</button>
+      <button id="confirm-reincorporate-btn" style="background-color: #198754;">Confirmar Reincorporación</button>
     </div>
   </div>
 </div>
@@ -342,11 +359,6 @@
     document.getElementById('add-order-btn').addEventListener('click', () => {
         google.script.run.showAppendOrdersDialog();
     });
-
-    document.getElementById('view-deleted-btn').addEventListener('click', () => {
-        google.script.run.showDeletedOrders();
-    });
-
 
     // --- NUEVA LÓGICA PARA ELIMINAR PEDIDOS (MODAL) ---
     const deleteModalOverlay = document.getElementById('delete-modal-overlay');
@@ -509,6 +521,168 @@
         })
         .withFailureHandler(handleError)
         .deleteSelectedRows(selectedRows);
+    });
+
+
+    // --- LÓGICA PARA REINCORPORAR PEDIDOS (MODAL) ---
+    const reincorporateModalOverlay = document.getElementById('reincorporate-modal-overlay');
+    const reincorporateAccordion = document.getElementById('reincorporate-accordion-container');
+    const reincorporateSearch = document.getElementById('reincorporate-search-input');
+    let allDeletedOrdersData = {};
+
+    // 1. Abrir el modal de reincorporación
+    document.getElementById('view-deleted-btn').addEventListener('click', () => {
+      setLoadingState(true, 'Cargando pedidos eliminados...');
+      reincorporateAccordion.innerHTML = 'Cargando...';
+      reincorporateModalOverlay.style.display = 'flex';
+
+      google.script.run
+        .withSuccessHandler(response => {
+          setLoadingState(false);
+          if (response.ok) {
+            allDeletedOrdersData = response.orders;
+            populateReincorporateAccordion(allDeletedOrdersData);
+          } else {
+            reincorporateAccordion.innerHTML = `<div class="empty">Error: ${escapeHtml(response.error)}</div>`;
+          }
+        })
+        .withFailureHandler(err => {
+            setLoadingState(false);
+            reincorporateAccordion.innerHTML = `<div class="empty">Error: ${escapeHtml(err.message)}</div>`;
+        })
+        .getDeletedOrders();
+    });
+
+    // 2. Poblar el acordeón de reincorporación
+    function populateReincorporateAccordion(orders) {
+        reincorporateAccordion.innerHTML = '';
+        const orderKeys = Object.keys(orders).sort((a, b) => b - a);
+
+        if (orderKeys.length === 0) {
+            reincorporateAccordion.innerHTML = '<div class="empty">No se encontraron pedidos eliminados para reincorporar.</div>';
+            return;
+        }
+
+        orderKeys.forEach(orderId => {
+            const order = orders[orderId];
+            const group = document.createElement('div');
+            group.className = 'del-order-group'; // Reutilizamos la clase
+            group.setAttribute('data-order-id', orderId);
+
+            let headerHTML = `
+              <div class="del-order-header">
+                <input type="checkbox" class="order-checkbox" title="Seleccionar todo el pedido">
+                <div><strong>#${escapeHtml(order.orderNumber)}</strong></div>
+                <div>${escapeHtml(order.customerName)}</div>
+                <div><span class="muted">${escapeHtml(order.status)}</span></div>
+                <div>${escapeHtml(order.commune)}</div>
+                <div><span class="muted">${escapeHtml(order.van)}</span></div>
+                <div class="toggle">+</div>
+              </div>`;
+
+            let bodyHTML = '<div class="del-order-body">';
+            order.items.forEach(item => {
+                bodyHTML += `
+                  <div class="del-order-item">
+                    <input type="checkbox" class="item-checkbox" data-row-number="${item.rowNumber}">
+                    <div>${escapeHtml(item.productName)}</div>
+                    <div>Qty: <strong>${escapeHtml(item.quantity)}</strong></div>
+                  </div>`;
+            });
+            bodyHTML += '</div>';
+
+            group.innerHTML = headerHTML + bodyHTML;
+            reincorporateAccordion.appendChild(group);
+        });
+
+        // Reutilizamos los listeners pero dentro del contexto del modal de reincorporación
+        attachReincorporateListeners();
+    }
+
+    // 3. Listeners para el modal de reincorporación
+    function attachReincorporateListeners() {
+        reincorporateAccordion.querySelectorAll('.del-order-header').forEach(header => {
+            header.addEventListener('click', (e) => {
+                if (e.target.type === 'checkbox') return;
+                const body = header.nextElementSibling;
+                const toggle = header.querySelector('.toggle');
+                const isOpen = body.style.display === 'block';
+                body.style.display = isOpen ? 'none' : 'block';
+                toggle.textContent = isOpen ? '+' : '−';
+            });
+        });
+
+        reincorporateAccordion.querySelectorAll('.order-checkbox').forEach(orderChk => {
+            orderChk.addEventListener('change', (e) => {
+                const body = e.target.closest('.del-order-header').nextElementSibling;
+                body.querySelectorAll('.item-checkbox').forEach(itemChk => {
+                    itemChk.checked = e.target.checked;
+                });
+            });
+        });
+
+        reincorporateAccordion.querySelectorAll('.item-checkbox').forEach(itemChk => {
+            itemChk.addEventListener('change', (e) => {
+                const body = e.target.closest('.del-order-body');
+                const allItemCheckboxes = body.querySelectorAll('.item-checkbox');
+                const allChecked = Array.from(allItemCheckboxes).every(chk => chk.checked);
+                const orderCheckbox = body.previousElementSibling.querySelector('.order-checkbox');
+                orderCheckbox.checked = allChecked;
+            });
+        });
+    }
+
+    // 4. Búsqueda en el modal de reincorporación
+    reincorporateSearch.addEventListener('keyup', () => {
+        const searchTerm = reincorporateSearch.value.toLowerCase().trim();
+        reincorporateAccordion.querySelectorAll('.del-order-group').forEach(group => {
+            const orderId = group.dataset.orderId;
+            const orderData = allDeletedOrdersData[orderId];
+            const searchableText = [
+                orderData.orderNumber,
+                orderData.customerName,
+                orderData.commune,
+                orderData.status,
+                orderData.van
+            ].join(' ').toLowerCase();
+
+            if (searchableText.includes(searchTerm)) {
+                group.style.display = '';
+            } else {
+                group.style.display = 'none';
+            }
+        });
+    });
+
+    // 5. Botones del modal de reincorporación
+    document.getElementById('cancel-reincorporate-btn').addEventListener('click', () => {
+        reincorporateModalOverlay.style.display = 'none';
+    });
+
+    document.getElementById('confirm-reincorporate-btn').addEventListener('click', () => {
+        const selectedRows = [];
+        reincorporateAccordion.querySelectorAll('.item-checkbox:checked').forEach(chk => {
+            selectedRows.push(chk.dataset.rowNumber);
+        });
+
+        if (selectedRows.length === 0) {
+            alert('Por favor, selecciona al menos un producto para reincorporar.');
+            return;
+        }
+
+        setLoadingState(true, `Reincorporando ${selectedRows.length} fila(s)...`);
+
+        google.script.run
+            .withSuccessHandler(response => {
+                if (response.status === 'success') {
+                    handleSuccess(response.message);
+                    reincorporateModalOverlay.style.display = 'none';
+                } else {
+                    handleError({ message: response.message });
+                }
+            })
+            .withFailureHandler(handleError)
+            .reincorporateSelectedRows(selectedRows);
     });
   </script>
 </body>
