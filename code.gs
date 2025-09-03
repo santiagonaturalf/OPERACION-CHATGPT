@@ -1213,6 +1213,45 @@ function getHeaderIndexes_(sh, headerAliases){
 /**
  * Devuelve [{comuna, cantidadPedidos}]
  */
+function getDashboardSummary() {
+  try {
+    const sh = getSheet_(SH_ORDENES);
+    const idx = getHeaderIndexes_(sh, H_ORDENES);
+
+    if (idx.pedido < 0 || idx.cantidad < 0) {
+      return { ok: false, error: 'No se encontraron las columnas de "N° Pedido" o "Cantidad" en "' + SH_ORDENES + '".' };
+    }
+
+    const data = sh.getRange(2, 1, Math.max(0, sh.getLastRow() - 1), sh.getLastColumn()).getValues();
+
+    const pedidosUnicos = new Set();
+    let totalPaquetes = 0;
+
+    for (const row of data) {
+      const pedido = (row[idx.pedido] || '').toString().trim();
+      if (pedido) {
+        pedidosUnicos.add(pedido);
+      }
+
+      const cantidad = parseFloat(row[idx.cantidad]);
+      if (!isNaN(cantidad)) {
+        totalPaquetes += cantidad;
+      }
+    }
+
+    return {
+      ok: true,
+      data: {
+        pedidosHoy: pedidosUnicos.size,
+        paquetesHoy: totalPaquetes
+      }
+    };
+  } catch (e) {
+    Logger.log(`Error en getDashboardSummary: ${e.stack}`);
+    return { ok: false, error: e.toString() };
+  }
+}
+
 function getDistribucionComunas(){
   const sh = getSheet_(SH_ORDENES);
   const idx = getHeaderIndexes_(sh, H_ORDENES);
