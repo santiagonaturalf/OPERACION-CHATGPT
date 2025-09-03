@@ -231,30 +231,45 @@ function cancelOrder(orderId) {
 }
 
 function deleteOrder(orderId) {
-    try {
-        const ss = SpreadsheetApp.getActiveSpreadsheet();
-        const sheet = ss.getSheetByName('Orders');
-        const data = sheet.getDataRange().getValues();
-        const rowsToDelete = [];
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = getSheet_('Orders'); // Using the helper
+    const idx = getHeaderIndexes_(sheet, H_ORDENES);
 
-        // Find all rows matching the orderId, starting from the end to avoid shifting issues
-        for (let i = data.length - 1; i >= 1; i--) {
-            if (String(data[i][0]) === String(orderId)) {
-                rowsToDelete.push(i + 1);
-            }
-        }
-
-        if (rowsToDelete.length > 0) {
-            rowsToDelete.forEach(rowNum => sheet.deleteRow(rowNum));
-            SpreadsheetApp.flush();
-            return { status: 'success', message: `Pedido #${orderId} (${rowsToDelete.length} filas) eliminado exitosamente.` };
-        } else {
-            return { status: 'error', message: `No se encontró el pedido #${orderId} para eliminar.` };
-        }
-    } catch (e) {
-        Logger.log(`Error en deleteOrder: ${e.stack}`);
-        return { status: 'error', message: `Ocurrió un error al eliminar el pedido: ${e.message}` };
+    if (idx.pedido < 0 || idx.cantidad < 0) {
+      return { status: 'error', message: 'No se encontraron las columnas "N° Pedido" o "Cantidad" en la hoja "Orders".' };
     }
+
+    const data = sheet.getDataRange().getValues();
+    let rowsUpdated = 0;
+
+    data.forEach((row, i) => {
+      if (i === 0) return; // Skip header row
+
+      const currentOrderId = String(row[idx.pedido]).trim();
+      if (currentOrderId === String(orderId).trim()) {
+        const rowRange = sheet.getRange(i + 1, 1, 1, sheet.getLastColumn());
+        rowRange.setBackground('#ff0000'); // Red background
+
+        const quantityCell = sheet.getRange(i + 1, idx.cantidad + 1);
+        const currentQuantity = quantityCell.getValue();
+        if (!String(currentQuantity).startsWith('E')) {
+           quantityCell.setValue('E' + currentQuantity);
+        }
+        rowsUpdated++;
+      }
+    });
+
+    if (rowsUpdated > 0) {
+      SpreadsheetApp.flush();
+      return { status: 'success', message: `Pedido #${orderId} (${rowsUpdated} filas) marcado como eliminado.` };
+    } else {
+      return { status: 'error', message: `No se encontró el pedido #${orderId}.` };
+    }
+  } catch (e) {
+    Logger.log(`Error en deleteOrder: ${e.stack}`);
+    return { status: 'error', message: `Ocurrió un error al eliminar el pedido: ${e.message}` };
+  }
 }
 
 
@@ -784,6 +799,125 @@ function getReconciliationData() {
     unmatchedPayments: unassignedPayments.map(p => ({ ...p, date: formatDate(p.date) })),
     manualListOrders: manualListOrders.map(o => ({ ...o, date: formatDate(o.date) }))
   };
+}
+
+// --- GESTIÓN DE PEDIDOS (AGREGAR POR LOTE) ---
+
+/**
+ * Muestra un diálogo para agregar nuevos pedidos pegando texto.
+ */
+function showAppendOrdersDialog() {
+  const html = HtmlService.createHtmlOutputFromFile('AppendOrdersDialog')
+    .setWidth(650)
+    .setHeight(450);
+  SpreadsheetApp.getUi().showModalDialog(html, 'Agregar Pedidos por Lote');
+}
+
+/**
+ * Analiza texto separado por tabulaciones y lo anexa a la hoja "Orders".
+ * Asume que la primera fila del texto pegado es un encabezado y la ignora.
+ */
+function appendOrdersFromPastedText(textData) {
+  try {
+    if (!textData || typeof textData !== 'string' || textData.trim() === '') {
+      throw new Error("No se proporcionaron datos para importar.");
+    }
+
+    const sheet = getSheet_('Orders');
+
+    // Dividir el texto en filas y luego en celdas por tabulación.
+    let rows = textData.trim().split('\n').map(row => row.split('\t'));
+
+    // Se asume que el usuario incluye encabezados, por lo que se elimina la primera fila.
+    rows.shift();
+
+    if (rows.length === 0) {
+      return { status: 'success', message: "No se encontraron filas de datos para agregar (se omitió el encabezado)." };
+    }
+
+    // Anexar las nuevas filas a la hoja.
+    sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, rows[0].length).setValues(rows);
+
+    SpreadsheetApp.flush();
+    return { status: 'success', message: `Se agregaron ${rows.length} nuevos pedidos exitosamente.` };
+
+  } catch (e) {
+    Logger.log(`Error en appendOrdersFromPastedText: ${e.stack}`);
+    return { status: 'error', message: `Ocurrió un error: ${e.message}` };
+  }
+}
+
+
+// --- GESTIÓN DE PEDIDOS (ELIMINAR/VER) ---
+
+/**
+ * Muestra un reporte de los pedidos marcados como eliminados.
+ */
+function showDeletedOrders() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ui = SpreadsheetApp.getUi();
+  try {
+    const sheet = getSheet_('Orders');
+    // Extend H_ORDENES for this function
+    const H_ORDENES_EXT = {
+      ...H_ORDENES,
+      nombre: ['nombre completo', 'cliente', 'nombre', 'nombre y apellido']
+    };
+    const idx = getHeaderIndexes_(sheet, H_ORDENES_EXT);
+
+    if (idx.pedido < 0 || idx.cantidad < 0 || idx.producto < 0 || idx.nombre < 0) {
+      throw new Error('Faltan una o más columnas requeridas en "Orders" (Pedido, Cantidad, Producto, Nombre).');
+    }
+
+    const data = sheet.getDataRange().getValues();
+    const deletedOrders = [];
+
+    data.forEach((row, i) => {
+      if (i === 0) return; // Skip header
+
+      const quantity = String(row[idx.cantidad]);
+      if (quantity.startsWith('E')) {
+        deletedOrders.push({
+          orderNumber: row[idx.pedido],
+          customerName: row[idx.nombre],
+          productName: row[idx.producto],
+          quantity: quantity
+        });
+      }
+    });
+
+    if (deletedOrders.length === 0) {
+      ui.alert('No se encontraron pedidos eliminados.');
+      return;
+    }
+
+    let report = `Reporte de Pedidos Eliminados (${deletedOrders.length} items):\n\n`;
+    const groupedByOrder = {};
+    deletedOrders.forEach(item => {
+        if (!groupedByOrder[item.orderNumber]) {
+            groupedByOrder[item.orderNumber] = {
+                customerName: item.customerName,
+                items: []
+            };
+        }
+        groupedByOrder[item.orderNumber].items.push(`- ${item.productName} (Cantidad: ${item.quantity})`);
+    });
+
+    for (const orderNumber in groupedByOrder) {
+        report += `Pedido: #${orderNumber}\n`;
+        report += `Cliente: ${groupedByOrder[orderNumber].customerName}\n`;
+        report += groupedByOrder[orderNumber].items.join('\n');
+        report += `\n\n`;
+    }
+
+    // Use a preformatted block for better readability in the alert
+    const output = HtmlService.createHtmlOutput(`<pre>${report}</pre>`).setWidth(500).setHeight(400);
+    ui.showModalDialog(output, 'Pedidos Eliminados');
+
+  } catch (e) {
+    Logger.log(e);
+    ui.alert('Error', `Ocurrió un error al generar el reporte: ${e.message}`, ui.ButtonSet.OK);
+  }
 }
 
 // --- DASHBOARD V2 (IMPLEMENTACIÓN DEL USUARIO) ---

@@ -105,6 +105,12 @@
             <button id="notify-btn" class="action-button">📲 Notificar a Proveedores</button>
             <button id="comanda-rutas-btn" class="action-button">🚚 Comanda Rutas</button>
         </div>
+        <div>
+            <p><strong>Gestión de Pedidos:</strong></p>
+            <button id="add-order-btn" class="action-button" style="background-color: #17a2b8;">➕ Agregar Pedido</button>
+            <button id="delete-order-btn" class="action-button" style="background-color: #dc3545;">➖ Eliminar Pedido</button>
+            <button id="view-deleted-btn" class="action-button" style="background-color: #6c757d;">👀 Ver Eliminados</button>
+        </div>
     </div>
     <div id="status-log">Bienvenido.</div>
   </div>
@@ -230,6 +236,32 @@
     });
     document.getElementById('notify-btn').addEventListener('click', () => google.script.run.openNotificationPanel());
     document.getElementById('comanda-rutas-btn').addEventListener('click', () => google.script.run.showComandaRutasDialog());
+
+    // --- LÓGICA PARA BOTONES DE GESTIÓN DE PEDIDOS ---
+    document.getElementById('add-order-btn').addEventListener('click', () => {
+        google.script.run.showAppendOrdersDialog();
+    });
+
+    document.getElementById('delete-order-btn').addEventListener('click', () => {
+        const orderId = prompt('Por favor, ingrese el Número de Pedido a eliminar:');
+        if (orderId && orderId.trim() !== '') {
+            setLoadingState(true, `Marcando pedido #${orderId} como eliminado...`);
+            google.script.run
+                .withSuccessHandler((response) => {
+                    if(response.status === 'success') {
+                        handleSuccess(response.message);
+                    } else {
+                        handleError({ message: response.message });
+                    }
+                })
+                .withFailureHandler(handleError)
+                .deleteOrder(orderId.trim());
+        }
+    });
+
+    document.getElementById('view-deleted-btn').addEventListener('click', () => {
+        google.script.run.showDeletedOrders();
+    });
   </script>
 </body>
 </html>
