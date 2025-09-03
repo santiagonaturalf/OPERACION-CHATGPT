@@ -2,87 +2,202 @@
 <html>
 <head>
   <base target="_top">
+  <meta charset="utf-8" />
+  <title>Dashboard Operaciones SNF</title>
+  <script src="https://www.gstatic.com/charts/loader.js"></script>
   <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; margin: 0; background-color: #f0f2f5; color: #333; }
-    .container { padding: 20px; }
-    h1 { color: #1c1e21; }
-    .grid-container {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-      grid-gap: 20px;
-    }
-    .card {
-      background-color: white;
-      padding: 20px;
-      border-radius: 8px;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-    }
-    .kpi-card { text-align: center; }
-    .kpi-card h3 { margin: 0 0 10px 0; font-size: 14px; color: #606770; text-transform: uppercase; }
-    .kpi-card .value { font-size: 32px; font-weight: 700; color: #1877f2; }
-    #actions-card { grid-column: 1 / -1; }
+    :root{ --gap:12px; }
+    body{ font-family: Inter, Roboto, Arial, sans-serif; margin:0; padding: 16px; background-color: #f0f2f5; }
+    .main-container { max-width: 1200px; margin: auto; }
+    .row{ display:grid; grid-template-columns: 1fr 1fr; gap: var(--gap); align-items:stretch; }
+    .card{ border:1px solid #e5e7eb; border-radius:14px; padding:14px; box-shadow:0 1px 4px rgba(0,0,0,.06); background:#fff; }
+    .card h2, .card h3{ margin:0 0 10px 0; font-size:16px; }
+    .controls{ display:flex; gap:8px; flex-wrap: wrap; align-items:flex-end; }
+    .controls label{ display:block; font-size:12px; color:#555; margin-bottom:4px; }
+    .controls input{ height:36px; border:1px solid #d1d5db; border-radius:10px; padding:0 10px; min-width:220px; box-sizing: border-box; }
+    .controls button{ height:36px; border:0; border-radius:10px; padding:0 14px; cursor:pointer; background:#111827; color:#fff; }
+
+    .results{ margin-top:16px; }
+    .result-row{ border:1px solid #e8e8e8; border-radius:12px; margin-bottom:10px; overflow:hidden; }
+    .result-head{ display:grid; grid-template-columns: 2fr 1fr 40px; gap:8px; align-items:center; padding:10px 12px; background:#f9fafb; cursor:pointer; }
+    .pill{ display:inline-block; padding:2px 8px; border-radius:999px; background:#eef2ff; font-size:12px; }
+    .result-body{ display:none; padding:12px; background:#fff; border-top:1px solid #eee; }
+    .result-body dl{ display:grid; grid-template-columns: 220px 1fr; gap:8px 12px; margin:0; }
+    .toggle{ text-align:center; font-weight:bold; }
+    .muted{ color:#6b7280; font-size:12px; }
+    .small{ font-size:12px; }
+    .empty{ padding:16px; color:#6b7280; text-align: center; }
+
+    h1 { color: #1c1e21; margin-bottom: 16px; }
+    #actions-card { margin-top: 16px; }
     .actions-grid { display: grid; grid-template-columns: 1fr 1fr; grid-gap: 15px; }
-    .table-card { grid-column: span 2; }
-    #chart-card { grid-column: span 2; min-height: 300px;}
-
-    h2 { border-bottom: 1px solid #ddd; padding-bottom: 10px; font-size: 18px; }
-    table { width: 100%; border-collapse: collapse; }
-    th, td { padding: 10px 5px; text-align: left; border-bottom: 1px solid #eee; }
-    th { font-weight: bold; font-size: 12px; color: #606770; }
-    td { font-size: 14px; }
-
-    .action-button {
+     .action-button {
       display: block; width: 100%; padding: 12px; margin-bottom: 10px; font-size: 14px;
       font-weight: bold; border-radius: 5px; border: none; cursor: pointer; text-align: left;
       transition: background-color 0.2s;
     }
-    .action-button:disabled { background-color: #dcdfe3 !important; color: #bec3c9 !important; cursor: not-allowed;}
     #paste-import-btn { background-color: #0d6efd; color: white; }
     #clean-btn { background-color: #dc3545; color: white; }
-    #refresh-btn { background-color: #198754; color: white; }
+    #import-movements-btn { background-color: #ffc107; color: black; }
+    #conciliation-btn { background-color: #ffc107; color: black; }
     #packaging-btn, #acq-btn, #notify-btn, #comanda-rutas-btn { background-color: #6c757d; color: white; }
     #status-log { font-size: 12px; font-style: italic; color: #606770; margin-top: 15px; min-height: 18px;}
+
+
+    @media (max-width: 900px){
+      .row{ grid-template-columns: 1fr; }
+      .result-head{ grid-template-columns: 1fr 100px 40px; }
+      .result-body dl{ grid-template-columns: 1fr; }
+      .actions-grid { grid-template-columns: 1fr; }
+    }
   </style>
-  <script type="text/javascript" src="https://www.google.com/jsapi"></script>
 </head>
 <body>
-  <div class="container">
-    <h1>Dashboard de Operaciones</h1>
-    <div class="grid-container">
+<div class="main-container">
+  <h1>Dashboard de Operaciones</h1>
 
-      <div class="card kpi-card"><h3>Venta Total</h3><div id="kpi-sales-value" class="value">--</div></div>
-      <div class="card kpi-card"><h3>Nº Pedidos</h3><div id="kpi-orders-value" class="value">--</div></div>
-      <div class="card kpi-card"><h3>Costo Total</h3><div id="kpi-costs-value" class="value">--</div></div>
-      <div class="card kpi-card"><h3>Margen (%)</h3><div id="kpi-margin-value" class="value">--%</div></div>
+  <div class="row">
+    <!-- IZQUIERDA: Gráfico de Comunas -->
+    <div class="card">
+      <h3>Distribución de Pedidos por Comuna</h3>
+      <div id="chart-comunas" style="width:100%; height:300px;"></div>
+      <div id="chart-note" class="muted small">Fuente: <em>Orders</em></div>
+    </div>
 
-      <div id="actions-card" class="card">
-        <h2>Flujo de Trabajo Diario</h2>
-        <div class="actions-grid">
-            <div>
-                <p><strong>Paso 1:</strong> Carga los pedidos del día.</p>
-                <button id="paste-import-btn" class="action-button">Importar Pedidos (Copiar y Pegar)</button>
-                <p><strong>Paso 2:</strong> Revisa y limpia los datos.</p>
-                <button id="clean-btn" class="action-button">Limpiar Datos (Duplicados y Proveedores)</button>
-                <p><strong>Paso 3:</strong> Importa los movimientos del banco.</p>
-                <button id="import-movements-btn" class="action-button" style="background-color: #ffc107; color: black;">Importar Movimientos Bancarios</button>
-                <p><strong>Paso 4:</strong> Concilia los ingresos de ventas.</p>
-                <button id="conciliation-btn" class="action-button" style="background-color: #ffc107; color: black;">Conciliar Ingresos de Ventas</button>
-            </div>
-            <div>
-                <p><strong>Acciones de Operación:</strong></p>
-                <button id="packaging-btn" class="action-button">▶️ Iniciar Proceso de Envasado</button>
-                <button id="acq-btn" class="action-button">📝 Generar Adquisiciones</button>
-                <button id="notify-btn" class="action-button">📲 Notificar a Proveedores</button>
-                <button id="comanda-rutas-btn" class="action-button">🚚 Comanda Rutas</button>
-            </div>
+    <!-- DERECHA: Buscador -->
+    <div class="card">
+      <h3>Buscador (Producto / Nº Pedido)</h3>
+      <div class="controls">
+        <div>
+          <label>Nombre Producto (contiene)</label>
+          <input id="inp-producto" placeholder="Ej: Naranja, Chirimoya" />
         </div>
-        <div id="status-log">Bienvenido.</div>
+        <div>
+          <label>Nº de Pedido (exacto)</label>
+          <input id="inp-pedido" placeholder="Ej: 12345" />
+        </div>
+        <div>
+          <button id="btn-buscar">Buscar</button>
+        </div>
       </div>
 
+      <div class="results" id="results"></div>
     </div>
   </div>
 
+  <div id="actions-card" class="card">
+    <h2>Flujo de Trabajo Diario</h2>
+    <div class="actions-grid">
+        <div>
+            <p><strong>Paso 1:</strong> Carga los pedidos del día.</p>
+            <button id="paste-import-btn" class="action-button">Importar Pedidos (Copiar y Pegar)</button>
+            <p><strong>Paso 2:</strong> Revisa y limpia los datos.</p>
+            <button id="clean-btn" class="action-button">Limpiar Datos (Duplicados y Proveedores)</button>
+            <p><strong>Paso 3:</strong> Importa los movimientos del banco.</p>
+            <button id="import-movements-btn" class="action-button">Importar Movimientos Bancarios</button>
+            <p><strong>Paso 4:</strong> Concilia los ingresos de ventas.</p>
+            <button id="conciliation-btn" class="action-button">Conciliar Ingresos de Ventas</button>
+        </div>
+        <div>
+            <p><strong>Acciones de Operación:</strong></p>
+            <button id="packaging-btn" class="action-button">▶️ Iniciar Proceso de Envasado</button>
+            <button id="acq-btn" class="action-button">📝 Generar Adquisiciones</button>
+            <button id="notify-btn" class="action-button">📲 Notificar a Proveedores</button>
+            <button id="comanda-rutas-btn" class="action-button">🚚 Comanda Rutas</button>
+        </div>
+    </div>
+    <div id="status-log">Bienvenido.</div>
+  </div>
+</div>
+
   <script>
+    // --- LÓGICA PARA NUEVO DASHBOARD (DEL USUARIO) ---
+    google.charts.load('current', {'packages':['corechart']});
+    google.charts.setOnLoadCallback(drawComunas);
+
+    function drawComunas(){
+      google.script.run.withSuccessHandler(res => {
+        if (!res || !res.ok){
+          document.getElementById('chart-comunas').innerHTML = '<div class="empty">' + (res && res.error ? res.error : 'No hay datos de comunas') + '</div>';
+          return;
+        }
+        const data = new google.visualization.DataTable();
+        data.addColumn('string','Comuna');
+        data.addColumn('number','Pedidos');
+        res.items.forEach(x => data.addRow([x.comuna, Number(x.cantidadPedidos)||0]));
+        const chart = new google.visualization.PieChart(document.getElementById('chart-comunas'));
+        chart.draw(data, { pieHole: 0.35, legend: { position: 'right' } });
+      }).getDistribucionComunas();
+    }
+
+    document.getElementById('btn-buscar').addEventListener('click', doSearch);
+    document.getElementById('inp-producto').addEventListener('keydown', e=>{ if(e.key==='Enter') doSearch(); });
+    document.getElementById('inp-pedido').addEventListener('keydown', e=>{ if(e.key==='Enter') doSearch(); });
+
+    function doSearch(){
+      const productoText = document.getElementById('inp-producto').value.trim();
+      const numeroPedido = document.getElementById('inp-pedido').value.trim();
+      const cont = document.getElementById('results');
+      cont.innerHTML = '<div class="muted small">Buscando...</div>';
+
+      google.script.run.withSuccessHandler(res => {
+        if (!res || !res.ok){
+          cont.innerHTML = '<div class="empty">' + (res && res.error ? res.error : 'Sin resultados') + '</div>';
+          return;
+        }
+        if (!res.items || !res.items.length){
+          cont.innerHTML = '<div class="empty">No se encontraron coincidencias.</div>';
+          return;
+        }
+        cont.innerHTML = '';
+        res.items.forEach((row, i) => cont.appendChild(renderResult(row, i)));
+        attachToggles();
+      }).buscarProductosYPedidos({ productoText, numeroPedido });
+    }
+
+    function renderResult(row, idx){
+      const wrap = document.createElement('div');
+      wrap.className = 'result-row';
+      wrap.innerHTML = `
+        <div class="result-head" data-idx="${idx}">
+          <div><strong>${escapeHtml(row.producto)}</strong></div>
+          <div><span class="pill">${fmt(row.cantidadVendida)}</span></div>
+          <div class="toggle">+</div>
+        </div>
+        <div class="result-body" id="rb-${idx}">
+          <dl>
+            <dt>Números de Pedidos</dt><dd>${(row.pedidos && row.pedidos.length) ? row.pedidos.map(escapeHtml).join(', ') : '<span class="muted">—</span>'}</dd>
+            <dt>Inventario Actual</dt><dd>${row.inventarioActual ? escapeHtml(row.inventarioActual) : '<span class="muted">—</span>'}</dd>
+            <dt>Adquisiciones Hoy</dt><dd>${(row.adquisicionesHoy && (row.adquisicionesHoy.cantidad || row.adquisicionesHoy.formato)) ? `${escapeHtml(row.adquisicionesHoy.cantidad)} ${escapeHtml(row.adquisicionesHoy.formato||'')}` : '<span class="muted">—</span>'}</dd>
+            <dt>Inventario al finalizar</dt><dd>${row.inventarioFinal ? escapeHtml(row.inventarioFinal) : '<span class="muted">—</span>'}</dd>
+          </dl>
+        </div>`;
+      return wrap;
+    }
+
+    function attachToggles(){
+      document.querySelectorAll('.result-head').forEach(head => {
+        head.addEventListener('click', () => {
+          const idx = head.getAttribute('data-idx');
+          const body = document.getElementById('rb-'+idx);
+          const tog  = head.querySelector('.toggle');
+          const isOpen = body.style.display === 'block';
+          body.style.display = isOpen ? 'none' : 'block';
+          tog.textContent = isOpen ? '+' : '−';
+        });
+      });
+    }
+
+    function fmt(n){
+      n = Number(n)||0; return new Intl.NumberFormat('es-CL', {maximumFractionDigits:2}).format(n);
+    }
+
+    function escapeHtml(s){
+      return (s==null?'' : s.toString())
+        .replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#39;');
+    }
+
+    // --- LÓGICA PARA BOTONES ORIGINALES ---
     const statusLog = document.getElementById('status-log');
     const allButtons = document.querySelectorAll('.action-button');
 
@@ -91,65 +206,9 @@
         allButtons.forEach(btn => btn.disabled = isLoading);
     }
 
-    window.onload = function() {
-      google.charts.load('current', {packages:['corechart']});
-      loadAllMetrics();
-    };
-
-    function loadAllMetrics() {
-        setLoadingState(true, 'Cargando métricas...');
-
-        const metrics = {};
-
-        const p1 = new Promise((resolve, reject) => {
-            google.script.run.withSuccessHandler(data => {
-                if(data.error) return reject(new Error(data.error));
-                Object.assign(metrics, data);
-                resolve();
-            }).withFailureHandler(reject).getDashboardSummaryMetrics();
-        });
-
-        const p2 = new Promise((resolve, reject) => {
-            google.script.run.withSuccessHandler(data => {
-                if(data.error) return reject(new Error(data.error));
-                Object.assign(metrics, data);
-                resolve();
-            }).withFailureHandler(reject).getDashboardCostMetrics();
-        });
-
-        Promise.all([p1, p2])
-            .then(() => {
-                populateUI(metrics);
-            })
-            .catch(err => {
-                handleError(err);
-            });
-    }
-
-    document.getElementById('paste-import-btn').addEventListener('click', () => {
-        google.script.run.showPasteImportDialog();
-    });
-    document.getElementById('clean-btn').addEventListener('click', () => {
-        setLoadingState(true, 'Iniciando limpieza de datos...');
-        google.script.run.withSuccessHandler(handleSuccess).withFailureHandler(handleError).startDashboardRefresh();
-    });
-    document.getElementById('import-movements-btn').addEventListener('click', () => {
-        google.script.run.showImportMovementsDialog();
-    });
-    document.getElementById('conciliation-btn').addEventListener('click', () => google.script.run.showConciliationDialog());
-    document.getElementById('packaging-btn').addEventListener('click', () => google.script.run.startPackagingProcess());
-    document.getElementById('acq-btn').addEventListener('click', () => {
-        setLoadingState(true, 'Generando borrador y abriendo editor...');
-        google.script.run.withSuccessHandler(() => setLoadingState(false)).withFailureHandler(handleError).showAcquisitionEditor();
-    });
-    document.getElementById('notify-btn').addEventListener('click', () => google.script.run.openNotificationPanel());
-
-    document.getElementById('comanda-rutas-btn').addEventListener('click', () => google.script.run.showComandaRutasDialog());
-
     function handleSuccess(message) {
         setLoadingState(false, message);
         alert(message);
-        loadAllMetrics(); // Recargar métricas después de una acción exitosa
     }
 
     function handleError(err) {
@@ -157,23 +216,20 @@
        alert(`Error: ${err.message}`);
     }
 
-    function populateUI(metrics) {
-      if (metrics.productsWithoutCostCount > 0) {
-        let warning = `${metrics.productsWithoutCostCount} producto(s) no tienen un costo asignado y no se incluyen en el Costo Total.`;
-        warning += `\nProductos: ${metrics.productsWithoutCostNames.join(', ')}`;
-        statusLog.textContent = warning;
-        alert(warning);
-      } else {
-        statusLog.textContent = 'Dashboard actualizado.';
-      }
-
-      setLoadingState(false);
-      // Use || 0 to provide a default value of 0 if the metric is undefined, preventing crashes.
-      document.getElementById('kpi-sales-value').textContent = `$${(metrics.totalSales || 0).toLocaleString('es-CL')}`;
-      document.getElementById('kpi-orders-value').textContent = metrics.orderCount || 0;
-      document.getElementById('kpi-costs-value').textContent = `$${(metrics.totalCosts || 0).toLocaleString('es-CL')}`;
-      document.getElementById('kpi-margin-value').textContent = `${(metrics.marginPercentage || 0).toFixed(1)}%`;
-    }
+    document.getElementById('paste-import-btn').addEventListener('click', () => google.script.run.showPasteImportDialog());
+    document.getElementById('clean-btn').addEventListener('click', () => {
+        setLoadingState(true, 'Iniciando limpieza de datos...');
+        google.script.run.withSuccessHandler(handleSuccess).withFailureHandler(handleError).startDashboardRefresh();
+    });
+    document.getElementById('import-movements-btn').addEventListener('click', () => google.script.run.showImportMovementsDialog());
+    document.getElementById('conciliation-btn').addEventListener('click', () => google.script.run.showConciliationDialog());
+    document.getElementById('packaging-btn').addEventListener('click', () => google.script.run.startPackagingProcess());
+    document.getElementById('acq-btn').addEventListener('click', () => {
+        setLoadingState(true, 'Generando borrador y abriendo editor...');
+        google.script.run.withSuccessHandler(() => setLoadingState(false)).withFailureHandler(handleError).showAcquisitionEditor();
+    });
+    document.getElementById('notify-btn').addEventListener('click', () => google.script.run.openNotificationPanel());
+    document.getElementById('comanda-rutas-btn').addEventListener('click', () => google.script.run.showComandaRutasDialog());
   </script>
 </body>
 </html>
