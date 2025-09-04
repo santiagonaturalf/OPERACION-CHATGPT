@@ -1562,7 +1562,7 @@ function updateAcquisitionListAutomated() {
   }
 }
 
-function getAcquisitionDataForEditor() {
+function getAcquisitionDataForEditor(mode = 'wholesale') {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const ordersSheet = ss.getSheetByName('Orders');
   const skuSheet = ss.getSheetByName('SKU');
@@ -1578,18 +1578,15 @@ function getAcquisitionDataForEditor() {
   // 1. Generar el plan de adquisiciones (lógica reutilizada)
   const { productToSkuMap, baseProductPurchaseOptions } = getPurchaseDataMaps(skuSheet);
   const baseProductNeeds = calculateBaseProductNeeds(ordersSheet, productToSkuMap);
-  const acquisitionPlan = createAcquisitionPlan(baseProductNeeds, baseProductPurchaseOptions, inventoryMap);
+  const acquisitionPlan = createAcquisitionPlan(baseProductNeeds, baseProductPurchaseOptions, inventoryMap, mode);
 
   // 2. Obtener la lista de proveedores
   const supplierData = proveedoresSheet.getRange("A2:A" + proveedoresSheet.getLastRow()).getValues().flat().filter(String);
   const supplierSet = new Set(supplierData);
   supplierSet.add("Patio Mayorista"); // Asegurarse de que "Patio Mayorista" esté disponible
 
-  // Convertir el plan de un objeto a un array para que sea más fácil de manejar en el lado del cliente
-  const planAsArray = Object.values(acquisitionPlan);
-
   return {
-    acquisitionPlan: planAsArray,
+    acquisitionPlan: acquisitionPlan, // ya es un array
     allSuppliers: Array.from(supplierSet).sort()
   };
 }
@@ -1764,10 +1761,11 @@ function getHistoricalPrices() {
     const price = row[4];       // de la columna F
 
     if (productName && date && price) {
-      if (!priceMap[productName]) {
-        priceMap[productName] = [];
+      const normalizedProductName = normalizeKey(productName);
+      if (!priceMap[normalizedProductName]) {
+        priceMap[normalizedProductName] = [];
       }
-      priceMap[productName].push({
+      priceMap[normalizedProductName].push({
         date: new Date(date),
         price: parseFloat(String(price).replace(",", ".")) || 0
       });
@@ -1805,7 +1803,7 @@ function getCurrentInventory() {
     const quantity = row[1];    // from column C
     const unit = row[2];        // from column D
     if (productName) {
-      inventoryMap[productName] = {
+      inventoryMap[normalizeKey(productName)] = {
         quantity: parseFloat(String(quantity).replace(",", ".")) || 0,
         unit: unit || ''
       };
@@ -1839,8 +1837,11 @@ function getLatestSuppliersFromHistory() {
     const proveedor = row[5];    // Índice 5 en el rango C:H corresponde a la columna H
 
     // Si encontramos un producto y un proveedor, y aún no lo hemos guardado, lo añadimos al mapa.
-    if (productoBase && proveedor && !latestSuppliers[productoBase]) {
-      latestSuppliers[productoBase] = String(proveedor).trim();
+    if (productoBase && proveedor) {
+      const normalizedProductoBase = normalizeKey(productoBase);
+      if (!latestSuppliers[normalizedProductoBase]) {
+        latestSuppliers[normalizedProductoBase] = String(proveedor).trim();
+      }
     }
   }
 
@@ -1982,27 +1983,66 @@ function getPurchaseDataMaps(skuSheet) {
   const skuData = skuSheet.getRange("A2:I" + skuSheet.getLastRow()).getValues();
   const productToSkuMap = {};
   const baseProductPurchaseOptions = {};
+  const baseProductSaleUnits = {}; // To store the sale unit for each base product
+
   skuData.forEach(row => {
     const [nombreProducto, productoBase, formatoCompra, cantidadCompra, unidadCompra, cat, cantVenta, unidadVenta, proveedor] = row;
+
+    if (!productoBase) return; // Skip rows without a base product
+
+    const normalizedProductoBase = normalizeKey(productoBase);
+
     if (nombreProducto) {
       productToSkuMap[nombreProducto] = {
-        productoBase,
+        productoBase: normalizedProductoBase, // Use the normalized key
         cantidadVenta: parseFloat(String(cantVenta).replace(',', '.')) || 0,
         unidadVenta: normalizeUnit(unidadVenta)
       };
     }
-    if (productoBase && formatoCompra) {
-      if (!baseProductPurchaseOptions[productoBase]) {
-        baseProductPurchaseOptions[productoBase] = { options: [], suppliers: new Set() };
+
+    if (unidadVenta) {
+      baseProductSaleUnits[normalizedProductoBase] = normalizeUnit(unidadVenta);
+    }
+
+    if (formatoCompra) {
+      if (!baseProductPurchaseOptions[normalizedProductoBase]) {
+        baseProductPurchaseOptions[normalizedProductoBase] = { options: [], suppliers: new Set() };
       }
-      baseProductPurchaseOptions[productoBase].options.push({
-        name: formatoCompra,
-        size: parseFloat(String(cantidadCompra).replace(',', '.')) || 0,
-        unit: normalizeUnit(unidadCompra)
-      });
-      if (proveedor) baseProductPurchaseOptions[productoBase].suppliers.add(proveedor);
+
+      const options = baseProductPurchaseOptions[normalizedProductoBase].options;
+      const parsedCantidad = parseFloat(String(cantidadCompra).replace(',', '.')) || 0;
+      const normalizedUnidadCompra = normalizeUnit(unidadCompra);
+      const normalizedFormatoCompra = normalizeString(formatoCompra);
+
+      const exists = options.some(o =>
+        o.name === normalizedFormatoCompra &&
+        o.size === parsedCantidad &&
+        o.unit === normalizedUnidadCompra);
+
+      if (!exists) {
+        options.push({ name: normalizedFormatoCompra, size: parsedCantidad, unit: normalizedUnidadCompra });
+      }
+
+      if (proveedor) baseProductPurchaseOptions[normalizedProductoBase].suppliers.add(proveedor);
     }
   });
+
+  // Add minimum purchase formats (1kg / 1 unit) if they don't exist
+  for (const productoBase in baseProductPurchaseOptions) {
+      const saleUnit = baseProductSaleUnits[productoBase];
+      if (saleUnit === 'Kg' || saleUnit === 'Unidad') {
+          const options = baseProductPurchaseOptions[productoBase].options;
+          const hasMinOption = options.some(o => o.size === 1 && o.unit === saleUnit);
+          if (!hasMinOption) {
+              options.push({
+                  name: saleUnit === 'Kg' ? 'Bolsa' : 'Unidad', // Generic name for the minimum unit
+                  size: 1,
+                  unit: saleUnit
+              });
+          }
+      }
+  }
+
   return { productToSkuMap, baseProductPurchaseOptions };
 }
 
@@ -2023,57 +2063,85 @@ function calculateBaseProductNeeds(ordersSheet, productToSkuMap) {
   return baseProductNeeds;
 }
 
-function createAcquisitionPlan(baseProductNeeds, baseProductPurchaseOptions, inventoryMap) {
-  const acquisitionPlan = {};
-  const latestSuppliers = getLatestSuppliersFromHistory(); // Llama a la nueva función
+function createAcquisitionPlan(baseProductNeeds, baseProductPurchaseOptions, inventoryMap, mode = 'wholesale') {
+  const acquisitionPlan = []; // Devolver un array para soportar múltiples filas por producto
+  const latestSuppliers = getLatestSuppliersFromHistory();
 
-  for (const baseProduct in baseProductNeeds) {
+  // Ordenar productos alfabéticamente para una visualización consistente
+  const sortedBaseProducts = Object.keys(baseProductNeeds).sort((a, b) => a.localeCompare(b));
+
+  for (const baseProduct of sortedBaseProducts) {
     if (baseProductPurchaseOptions[baseProduct]) {
       const needs = baseProductNeeds[baseProduct];
       const purchaseInfo = baseProductPurchaseOptions[baseProduct];
-      const purchaseOptions = purchaseInfo.options;
+
+      // Ordenar formatos por tamaño descendente, es clave para ambas lógicas
+      const purchaseOptions = purchaseInfo.options.sort((a, b) => b.size - a.size);
+
       const needUnit = Object.keys(needs)[0];
       const totalNeed = needs[needUnit];
-      let bestOption = null;
-      let minWaste = Infinity;
-
-      // Get current inventory for this product, defaulting to 0
       const inventoryInfo = (inventoryMap && inventoryMap[baseProduct]) ? inventoryMap[baseProduct] : { quantity: 0, unit: needUnit };
-      const netNeed = Math.max(0, totalNeed - inventoryInfo.quantity);
+      let netNeed = Math.max(0, totalNeed - inventoryInfo.quantity);
 
-      purchaseOptions.forEach((option) => {
-        if (option.unit === needUnit && option.size > 0) {
-          const numToBuy = netNeed > 0 ? Math.ceil(netNeed / option.size) : 0;
-          const waste = (numToBuy * option.size) - netNeed;
-          if (waste < minWaste) {
-            minWaste = waste;
-            bestOption = { ...option, suggestedQty: numToBuy };
+      if (netNeed <= 0) continue;
+
+      const supplier = getBestSupplier(purchaseInfo, latestSuppliers[baseProduct]);
+
+      if (mode === 'just-in-time') {
+        let remainingNeed = netNeed;
+
+        // Iterar de la opción más grande a la más pequeña
+        purchaseOptions.forEach(option => {
+          if (option.unit === needUnit && option.size > 0 && remainingNeed > 0) {
+            const numToBuy = Math.floor(remainingNeed / option.size);
+            if (numToBuy > 0) {
+              acquisitionPlan.push(createAcquisitionItem(baseProduct, totalNeed, needUnit, supplier, purchaseOptions, option, numToBuy, inventoryInfo));
+              remainingNeed -= numToBuy * option.size;
+            }
+          }
+        });
+
+        // Si queda un remanente, comprar una unidad del formato más pequeño disponible
+        if (remainingNeed > 0) {
+          const smallestOption = purchaseOptions.slice().reverse().find(o => o.unit === needUnit && o.size > 0);
+          if (smallestOption) {
+            acquisitionPlan.push(createAcquisitionItem(baseProduct, totalNeed, needUnit, supplier, purchaseOptions, smallestOption, 1, inventoryInfo));
           }
         }
-      });
-
-      if (bestOption) {
-        // --- NUEVA LÓGICA PARA PROVEEDOR ---
-        const historicalSupplier = latestSuppliers[baseProduct];
-        const skuSuppliers = Array.from(purchaseInfo.suppliers);
-        const defaultSkuSupplier = skuSuppliers.length > 0 ? skuSuppliers[0] : "Patio Mayorista";
-
-        acquisitionPlan[baseProduct] = {
-          productName: baseProduct,
-          totalNeed,
-          unit: needUnit,
-          saleUnit: needUnit,
-          supplier: historicalSupplier || defaultSkuSupplier, // Usa el proveedor histórico con fallback
-          availableFormats: purchaseOptions,
-          suggestedFormat: bestOption,
-          suggestedQty: bestOption.suggestedQty,
-          currentInventory: inventoryInfo.quantity,
-          currentInventoryUnit: inventoryInfo.unit
-        };
+      } else { // modo 'wholesale' (por defecto)
+        const bestOption = purchaseOptions[0]; // La opción más grande
+        if (bestOption) {
+          const numToBuy = netNeed > 0 ? Math.ceil(netNeed / bestOption.size) : 0;
+          if (numToBuy > 0) {
+             acquisitionPlan.push(createAcquisitionItem(baseProduct, totalNeed, needUnit, supplier, purchaseOptions, bestOption, numToBuy, inventoryInfo));
+          }
+        }
       }
     }
   }
   return acquisitionPlan;
+}
+
+/** Helper para crear un item del plan de adquisición y evitar repetición de código. */
+function createAcquisitionItem(productName, totalNeed, unit, supplier, availableFormats, suggestedFormat, suggestedQty, inventoryInfo) {
+  return {
+    productName,
+    totalNeed,
+    unit,
+    saleUnit: unit, // Asumimos que la unidad de venta es la misma que la de necesidad
+    supplier,
+    availableFormats,
+    suggestedFormat,
+    suggestedQty,
+    currentInventory: inventoryInfo.quantity,
+    currentInventoryUnit: inventoryInfo.unit
+  };
+}
+
+/** Helper para determinar el mejor proveedor. */
+function getBestSupplier(purchaseInfo, historicalSupplier) {
+    const skuSuppliers = Array.from(purchaseInfo.suppliers);
+    return historicalSupplier || (skuSuppliers.length > 0 ? skuSuppliers[0] : "Patio Mayorista");
 }
 
 function groupPlanBySupplier(acquisitionPlan) {
@@ -2085,6 +2153,16 @@ function groupPlanBySupplier(acquisitionPlan) {
     dataBySupplier[supplier].push(productData);
   }
   return dataBySupplier;
+}
+
+/**
+ * Normaliza una cadena para ser usada como clave (lowercase, trim).
+ * @param {string} str La cadena a normalizar.
+ * @returns {string} La cadena normalizada.
+ */
+function normalizeKey(str) {
+  if (!str || typeof str !== 'string') return '';
+  return str.trim().toLowerCase();
 }
 
 function normalizeString(str) {
