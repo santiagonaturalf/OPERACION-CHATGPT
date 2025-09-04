@@ -1572,6 +1572,22 @@ function getAcquisitionDataForEditor(mode = 'wholesale') {
     throw new Error('Faltan una o más hojas requeridas: "Orders", "SKU", o "Proveedores".');
   }
 
+  // --- NEW: Cargar categorías desde SKU ---
+  const baseToCategory = new Map();
+  const allCategoriesSet = new Set();
+  if (skuSheet.getLastRow() > 1) {
+    // Columnas: B (Producto Base), F (Categoría)
+    const skuCategoryData = skuSheet.getRange("B2:F" + skuSheet.getLastRow()).getValues();
+    skuCategoryData.forEach(row => {
+      const baseProduct = row[0]; // Col B
+      const category = row[4];    // Col F
+      if (baseProduct && category) {
+        baseToCategory.set(normalizeKey(baseProduct), category);
+        allCategoriesSet.add(category);
+      }
+    });
+  }
+
   // 0. Get current inventory first
   const inventoryMap = getCurrentInventory();
 
@@ -1580,14 +1596,30 @@ function getAcquisitionDataForEditor(mode = 'wholesale') {
   const baseProductNeeds = calculateBaseProductNeeds(ordersSheet, productToSkuMap);
   const acquisitionPlan = createAcquisitionPlan(baseProductNeeds, baseProductPurchaseOptions, inventoryMap, mode);
 
+  // --- NEW: Enriquecer plan con categorías ---
+  let hasUncategorized = false;
+  acquisitionPlan.forEach(item => {
+    const key = normalizeKey(item.productName);
+    if (baseToCategory.has(key)) {
+      item.category = baseToCategory.get(key);
+    } else {
+      item.category = 'Sin Categoría';
+      hasUncategorized = true;
+    }
+  });
+  if (hasUncategorized) {
+      allCategoriesSet.add('Sin Categoría');
+  }
+
   // 2. Obtener la lista de proveedores
   const supplierData = proveedoresSheet.getRange("A2:A" + proveedoresSheet.getLastRow()).getValues().flat().filter(String);
   const supplierSet = new Set(supplierData);
   supplierSet.add("Patio Mayorista"); // Asegurarse de que "Patio Mayorista" esté disponible
 
   return {
-    acquisitionPlan: acquisitionPlan, // ya es un array
-    allSuppliers: Array.from(supplierSet).sort()
+    acquisitionPlan: acquisitionPlan,
+    allSuppliers: Array.from(supplierSet).sort(),
+    allCategories: Array.from(allCategoriesSet).sort()
   };
 }
 

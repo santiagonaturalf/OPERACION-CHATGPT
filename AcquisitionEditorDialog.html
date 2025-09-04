@@ -6,16 +6,18 @@
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; margin: 0; background-color: #f0f2f5; color: #333; }
     .container { padding: 20px; }
     h1 { color: #1c1e21; margin-top: 0; }
+    .filters { margin-top: 15px; margin-bottom: 15px; display: flex; gap: 20px; }
+    .filters label { font-weight: bold; display: flex; align-items: center; gap: 5px; }
     table { width: 100%; border-collapse: collapse; margin-top: 15px; }
     th, td { padding: 12px 8px; text-align: left; border-bottom: 1px solid #ddd; }
     th { font-weight: bold; font-size: 13px; color: #606770; background-color: #f5f6f7; }
     td { font-size: 14px; vertical-align: middle; }
     tr:hover { background-color: #f5f5f5; }
     .low-stock-warning, .low-stock-warning:hover {
-      background-color: #fff3cd !important; /* A bootstrap-like warning yellow */
+      background-color: #fff3cd !important;
     }
     .negative-stock-error, .negative-stock-error:hover {
-      background-color: #f8d7da !important; /* A bootstrap-like danger red */
+      background-color: #f8d7da !important;
       color: #721c24;
     }
     .inventory-correction-input {
@@ -61,6 +63,18 @@
 <body>
   <div class="container">
     <h1>Editar Borrador de Adquisiciones</h1>
+    <div class="filters">
+      <label>Categoría:
+        <select id="category-filter">
+          <option value="">Todas</option>
+        </select>
+      </label>
+      <label>Proveedor:
+        <select id="supplier-filter">
+          <option value="">Todos</option>
+        </select>
+      </label>
+    </div>
     <p>La lista carga por defecto en modo "Mayorista". Usa los botones para recalcular según necesites.</p>
     <table id="acquisitions-table">
       <thead>
@@ -91,11 +105,14 @@
   <script>
     let planData = [];
     let allSuppliers = [];
+    let allCategories = [];
     const tableBody = document.querySelector("#acquisitions-table tbody");
     const saveBtn = document.getElementById('save-btn');
     const justInTimeBtn = document.getElementById('just-in-time-btn');
     const wholesaleBtn = document.getElementById('wholesale-btn');
     const statusSpan = document.getElementById('status');
+    const categorySelect = document.getElementById('category-filter');
+    const supplierFilter = document.getElementById('supplier-filter');
 
     function processPlanData(plan) {
        plan.forEach(item => {
@@ -110,17 +127,46 @@
       try {
         const serverData = <?!= JSON.stringify(data) ?>;
         allSuppliers = serverData.allSuppliers;
+        allCategories = serverData.allCategories;
         planData = processPlanData(serverData.acquisitionPlan);
+
+        // Populate filters
+        allCategories.forEach(cat => {
+            const opt = document.createElement('option');
+            opt.value = cat;
+            opt.textContent = cat;
+            categorySelect.appendChild(opt);
+        });
+        allSuppliers.forEach(sp => {
+            const opt = document.createElement('option');
+            opt.value = sp;
+            opt.textContent = sp;
+            supplierFilter.appendChild(opt);
+        });
+
+        categorySelect.addEventListener('change', renderTable);
+        supplierFilter.addEventListener('change', renderTable);
 
         renderTable();
         statusSpan.textContent = 'Listo para editar.';
         saveBtn.disabled = false;
 
         tableBody.addEventListener('input', function(e) {
-          if (e.target.classList.contains('quantity-input') || e.target.classList.contains('format-select') || e.target.classList.contains('inventory-correction-input')) {
+          if (e.target.classList.contains('quantity-input') || e.target.classList.contains('format-select') || e.target.classList.contains('supplier-select') || e.target.classList.contains('inventory-correction-input')) {
             const row = e.target.closest('tr');
             if (!row) return;
             const index = parseInt(row.getAttribute('data-index'), 10);
+
+            if (e.target.classList.contains('quantity-input')) {
+              planData[index].suggestedQty = e.target.value;
+            }
+            if (e.target.classList.contains('format-select')) {
+              planData[index].selectedFormatString = e.target.value;
+            }
+            if (e.target.classList.contains('supplier-select')) {
+              planData[index].supplier = e.target.value;
+            }
+
             updateRowAppearance(row, planData[index]);
           }
         });
@@ -137,14 +183,13 @@
       const formatSize = selectedFormat ? selectedFormat.size : 0;
       const purchasedAmount = (parseFloat(quantity) || 0) * formatSize;
       const finalInventory = (currentInventory || 0) + purchasedAmount - (parseFloat(item.totalNeed) || 0);
-      return finalInventory.toFixed(2); // Redondear a 2 decimales
+      return finalInventory.toFixed(2);
     }
 
     function updateRowAppearance(row, item) {
       let inventoryForCalc = item.currentInventory;
       const correctionInput = row.querySelector('.inventory-correction-input');
       
-      // If a correction box exists, its value becomes the new source of truth for calculations.
       if (correctionInput) {
         inventoryForCalc = parseFloat(correctionInput.value) || 0;
       }
@@ -154,18 +199,12 @@
       const finalInventory = calculateFinalInventory(item, quantity, formatString, inventoryForCalc);
       const finalInventoryCell = row.querySelector('.final-inventory');
 
-      // Always reset the low-stock warning before re-evaluating.
       row.classList.remove('low-stock-warning');
       
-      // The 'negative-stock-error' class on the row is set only at render time and indicates a SOURCE data problem.
-      // It is not removed here. We just decide what to display.
       if (parseFloat(finalInventory) < 0) {
-        // If the final calculation is negative (regardless of the start), show an error message.
         finalInventoryCell.textContent = 'REVISAR INVENTARIO';
       } else {
-        // Otherwise, show the calculated value.
         finalInventoryCell.textContent = `${finalInventory} ${item.unit}`;
-        // And apply the low-stock warning if needed.
         if (parseFloat(finalInventory) < 3) {
           row.classList.add('low-stock-warning');
         }
@@ -173,8 +212,18 @@
     }
 
     function renderTable() {
-      tableBody.innerHTML = ''; // Limpiar la tabla antes de renderizar
-      planData.forEach((item, index) => {
+      const selectedCategory = categorySelect.value;
+      const selectedSupplier = supplierFilter.value;
+
+      const itemsToShow = planData.filter(item => {
+          const catOk = !selectedCategory || item.category === selectedCategory;
+          const supplierOk = !selectedSupplier || item.supplier === selectedSupplier;
+          return catOk && supplierOk;
+      });
+
+      tableBody.innerHTML = '';
+      itemsToShow.forEach(item => {
+        const index = planData.indexOf(item);
         const row = document.createElement('tr');
         row.setAttribute('data-index', index);
 
@@ -190,7 +239,6 @@
           inventoryCellHtml = `<td>${item.currentInventory} ${item.currentInventoryUnit}</td>`;
         }
 
-        // Crear las celdas de la fila (sin el valor final del inventario, se calculará en updateRowAppearance)
         row.innerHTML = `
           <td>${item.productName}</td>
           ${inventoryCellHtml}
@@ -202,7 +250,6 @@
         `;
         tableBody.appendChild(row);
         
-        // Calcular y aplicar el estado inicial de la fila
         updateRowAppearance(row, item);
       });
     }
@@ -216,24 +263,12 @@
     saveBtn.addEventListener('click', function() {
       setLoadingState(true, 'Guardando cambios...');
 
-      const finalPlan = [];
-      const rows = tableBody.querySelectorAll('tr');
-
-      rows.forEach(row => {
-        const index = parseInt(row.getAttribute('data-index'), 10);
-        const originalItem = planData[index];
-
-        const quantity = row.querySelector('.quantity-input').value;
-        const selectedFormatString = row.querySelector('.format-select').value;
-        const supplier = row.querySelector('.supplier-select').value;
-
-        finalPlan.push({
-          ...originalItem, // Copia todas las propiedades originales (totalNeed, unit, etc.)
-          quantity: quantity,
-          selectedFormatString: selectedFormatString,
-          supplier: supplier,
-        });
-      });
+      const finalPlan = planData.map(item => ({
+          ...item,
+          quantity: item.suggestedQty,
+          selectedFormatString: item.selectedFormatString,
+          supplier: item.supplier
+      }));
 
       google.script.run
         .withSuccessHandler(handleSaveSuccess)
@@ -245,21 +280,18 @@
       setLoadingState(false, '¡Guardado! Listo para notificar.');
       alert(response.message);
 
-      // Repurpose the save button to open the notification panel
       const saveBtn = document.getElementById('save-btn');
       saveBtn.textContent = 'Ir al Panel de Notificación';
 
-      // Remove old listener to prevent re-saving, then get a reference to the new button
       const newSaveBtn = saveBtn.cloneNode(true);
       saveBtn.parentNode.replaceChild(newSaveBtn, saveBtn);
 
-      // Add new listener to the new button
       newSaveBtn.addEventListener('click', () => {
         setLoadingState(true, 'Abriendo notificaciones...');
         google.script.run
           .withSuccessHandler(() => google.script.host.close())
           .withFailureHandler(handleError)
-          .openNotificationPanel(); // Call the correct new function
+          .openNotificationPanel();
       });
     }
 
@@ -281,6 +313,7 @@
         .withSuccessHandler(function(newData) {
           planData = processPlanData(newData.acquisitionPlan);
           allSuppliers = newData.allSuppliers;
+          allCategories = newData.allCategories;
           renderTable();
           setLoadingState(false, 'Cálculo mayorista completado.');
         })
@@ -294,6 +327,7 @@
         .withSuccessHandler(function(newData) {
           planData = processPlanData(newData.acquisitionPlan);
           allSuppliers = newData.allSuppliers;
+          allCategories = newData.allCategories;
           renderTable();
           setLoadingState(false, 'Cálculo de compra justa completado.');
         })
