@@ -2119,49 +2119,61 @@ function createAcquisitionPlan(baseProductNeeds, baseProductPurchaseOptions, inv
 
       const supplier = getBestSupplier(purchaseInfo, latestSuppliers[baseProduct]);
 
-      if (mode === 'just-in-time') {
-        let remainingNeed = netNeed;
+      // --- START: Universal 'Just-in-Time' based calculation ---
+      let remainingNeed = netNeed;
 
-        // Iterar de la opción más grande a la más pequeña
-        purchaseOptions.forEach(option => {
-          if (option.unit === needUnit && option.size > 0 && remainingNeed > 0) {
-            const numToBuy = Math.floor(remainingNeed / option.size);
-            if (numToBuy > 0) {
-              acquisitionPlan.push(createAcquisitionItem(baseProduct, totalNeed, needUnit, supplier, purchaseOptions, option, numToBuy, inventoryInfo));
-              remainingNeed -= numToBuy * option.size;
-            }
-          }
-        });
-
-        // Si queda un remanente, comprar una unidad del formato más pequeño disponible
-        if (remainingNeed > 0) {
-          const smallestOption = purchaseOptions.slice().reverse().find(o => o.unit === needUnit && o.size > 0);
-          if (smallestOption) {
-            acquisitionPlan.push(createAcquisitionItem(baseProduct, totalNeed, needUnit, supplier, purchaseOptions, smallestOption, 1, inventoryInfo));
+      // Iterar de la opción más grande a la más pequeña
+      purchaseOptions.forEach(option => {
+        if (option.unit === needUnit && option.size > 0 && remainingNeed > 0) {
+          const numToBuy = Math.floor(remainingNeed / option.size);
+          if (numToBuy > 0) {
+            acquisitionPlan.push(createAcquisitionItem(baseProduct, totalNeed, needUnit, supplier, purchaseOptions, option, numToBuy, inventoryInfo));
+            remainingNeed -= numToBuy * option.size;
           }
         }
-      } else { // modo 'wholesale' (Compra Normal/Minimo Mayorista)
-        // Buscar el formato más pequeño que sea IGUAL O MAYOR a la necesidad neta.
-        // Se busca en reverso (del más pequeño al más grande) porque las opciones vienen ordenadas de mayor a menor.
-        const idealOption = purchaseOptions.slice().reverse().find(o => o.size >= netNeed && o.unit === needUnit);
+      });
 
-        if (idealOption) {
-          // Si se encuentra un formato ideal, comprar solo 1 de ese.
-          acquisitionPlan.push(createAcquisitionItem(baseProduct, totalNeed, needUnit, supplier, purchaseOptions, idealOption, 1, inventoryInfo));
-        } else {
-          // Si NINGÚN formato individualmente cubre la necesidad (ej: necesito 15kg, pero el formato más grande es de 12kg),
-          // usar el formato más grande disponible y calcular cuántos se necesitan.
-          const biggestOption = purchaseOptions[0]; // La opción más grande
-          if (biggestOption && biggestOption.unit === needUnit) {
-            const numToBuy = netNeed > 0 ? Math.ceil(netNeed / biggestOption.size) : 0;
-            if (numToBuy > 0) {
-              acquisitionPlan.push(createAcquisitionItem(baseProduct, totalNeed, needUnit, supplier, purchaseOptions, biggestOption, numToBuy, inventoryInfo));
-            }
-          }
+      // Si queda un remanente, comprar una unidad del formato más pequeño disponible
+      if (remainingNeed > 0) {
+        const smallestOption = purchaseOptions.slice().reverse().find(o => o.unit === needUnit && o.size > 0);
+        if (smallestOption) {
+          acquisitionPlan.push(createAcquisitionItem(baseProduct, totalNeed, needUnit, supplier, purchaseOptions, smallestOption, 1, inventoryInfo));
         }
       }
+      // --- END: Universal 'Just-in-Time' based calculation ---
     }
   }
+  // Si estamos en modo mayorista, fusionar múltiples líneas del mismo producto
+  if (mode === 'wholesale') {
+    const merged = {};
+    acquisitionPlan.forEach(item => {
+      const key = item.productName;
+      // Calcula el total adquirido (unidades * tamaño)
+      const purchaseSize = item.suggestedQty * item.suggestedFormat.size;
+
+      if (!merged[key]) {
+        merged[key] = { ...item, totalPurchaseSize: purchaseSize };
+      } else {
+        merged[key].totalPurchaseSize += purchaseSize;
+      }
+    });
+
+    // Reconstruye cada entrada a partir del total acumulado,
+    // usando la presentación más grande disponible
+    acquisitionPlan.length = 0;
+    Object.values(merged).forEach(entry => {
+      const options = entry.availableFormats.sort((a,b) => b.size - a.size);
+      const bestFormat = options[0]; // mayor tamaño
+      const qty = Math.ceil(entry.totalPurchaseSize / bestFormat.size);
+
+      acquisitionPlan.push({
+        ...entry,
+        suggestedFormat: bestFormat,
+        suggestedQty: qty,
+      });
+    });
+  }
+
   return acquisitionPlan;
 }
 
