@@ -2108,12 +2108,23 @@ function createAcquisitionPlan(baseProductNeeds, baseProductPurchaseOptions, inv
             acquisitionPlan.push(createAcquisitionItem(baseProduct, totalNeed, needUnit, supplier, purchaseOptions, smallestOption, 1, inventoryInfo));
           }
         }
-      } else { // modo 'wholesale' (por defecto)
-        const bestOption = purchaseOptions[0]; // La opción más grande
-        if (bestOption) {
-          const numToBuy = netNeed > 0 ? Math.ceil(netNeed / bestOption.size) : 0;
-          if (numToBuy > 0) {
-             acquisitionPlan.push(createAcquisitionItem(baseProduct, totalNeed, needUnit, supplier, purchaseOptions, bestOption, numToBuy, inventoryInfo));
+      } else { // modo 'wholesale' (Compra Normal/Minimo Mayorista)
+        // Buscar el formato más pequeño que sea IGUAL O MAYOR a la necesidad neta.
+        // Se busca en reverso (del más pequeño al más grande) porque las opciones vienen ordenadas de mayor a menor.
+        const idealOption = purchaseOptions.slice().reverse().find(o => o.size >= netNeed && o.unit === needUnit);
+
+        if (idealOption) {
+          // Si se encuentra un formato ideal, comprar solo 1 de ese.
+          acquisitionPlan.push(createAcquisitionItem(baseProduct, totalNeed, needUnit, supplier, purchaseOptions, idealOption, 1, inventoryInfo));
+        } else {
+          // Si NINGÚN formato individualmente cubre la necesidad (ej: necesito 15kg, pero el formato más grande es de 12kg),
+          // usar el formato más grande disponible y calcular cuántos se necesitan.
+          const biggestOption = purchaseOptions[0]; // La opción más grande
+          if (biggestOption && biggestOption.unit === needUnit) {
+            const numToBuy = netNeed > 0 ? Math.ceil(netNeed / biggestOption.size) : 0;
+            if (numToBuy > 0) {
+              acquisitionPlan.push(createAcquisitionItem(baseProduct, totalNeed, needUnit, supplier, purchaseOptions, biggestOption, numToBuy, inventoryInfo));
+            }
           }
         }
       }
