@@ -1764,10 +1764,11 @@ function getHistoricalPrices() {
     const price = row[4];       // de la columna F
 
     if (productName && date && price) {
-      if (!priceMap[productName]) {
-        priceMap[productName] = [];
+      const normalizedProductName = normalizeKey(productName);
+      if (!priceMap[normalizedProductName]) {
+        priceMap[normalizedProductName] = [];
       }
-      priceMap[productName].push({
+      priceMap[normalizedProductName].push({
         date: new Date(date),
         price: parseFloat(String(price).replace(",", ".")) || 0
       });
@@ -1805,7 +1806,7 @@ function getCurrentInventory() {
     const quantity = row[1];    // from column C
     const unit = row[2];        // from column D
     if (productName) {
-      inventoryMap[productName] = {
+      inventoryMap[normalizeKey(productName)] = {
         quantity: parseFloat(String(quantity).replace(",", ".")) || 0,
         unit: unit || ''
       };
@@ -1839,8 +1840,11 @@ function getLatestSuppliersFromHistory() {
     const proveedor = row[5];    // Índice 5 en el rango C:H corresponde a la columna H
 
     // Si encontramos un producto y un proveedor, y aún no lo hemos guardado, lo añadimos al mapa.
-    if (productoBase && proveedor && !latestSuppliers[productoBase]) {
-      latestSuppliers[productoBase] = String(proveedor).trim();
+    if (productoBase && proveedor) {
+      const normalizedProductoBase = normalizeKey(productoBase);
+      if (!latestSuppliers[normalizedProductoBase]) {
+        latestSuppliers[normalizedProductoBase] = String(proveedor).trim();
+      }
     }
   }
 
@@ -1982,27 +1986,66 @@ function getPurchaseDataMaps(skuSheet) {
   const skuData = skuSheet.getRange("A2:I" + skuSheet.getLastRow()).getValues();
   const productToSkuMap = {};
   const baseProductPurchaseOptions = {};
+  const baseProductSaleUnits = {}; // To store the sale unit for each base product
+
   skuData.forEach(row => {
     const [nombreProducto, productoBase, formatoCompra, cantidadCompra, unidadCompra, cat, cantVenta, unidadVenta, proveedor] = row;
+
+    if (!productoBase) return; // Skip rows without a base product
+
+    const normalizedProductoBase = normalizeKey(productoBase);
+
     if (nombreProducto) {
       productToSkuMap[nombreProducto] = {
-        productoBase,
+        productoBase: normalizedProductoBase, // Use the normalized key
         cantidadVenta: parseFloat(String(cantVenta).replace(',', '.')) || 0,
         unidadVenta: normalizeUnit(unidadVenta)
       };
     }
-    if (productoBase && formatoCompra) {
-      if (!baseProductPurchaseOptions[productoBase]) {
-        baseProductPurchaseOptions[productoBase] = { options: [], suppliers: new Set() };
+
+    if (unidadVenta) {
+      baseProductSaleUnits[normalizedProductoBase] = normalizeUnit(unidadVenta);
+    }
+
+    if (formatoCompra) {
+      if (!baseProductPurchaseOptions[normalizedProductoBase]) {
+        baseProductPurchaseOptions[normalizedProductoBase] = { options: [], suppliers: new Set() };
       }
-      baseProductPurchaseOptions[productoBase].options.push({
-        name: formatoCompra,
-        size: parseFloat(String(cantidadCompra).replace(',', '.')) || 0,
-        unit: normalizeUnit(unidadCompra)
-      });
-      if (proveedor) baseProductPurchaseOptions[productoBase].suppliers.add(proveedor);
+
+      const options = baseProductPurchaseOptions[normalizedProductoBase].options;
+      const parsedCantidad = parseFloat(String(cantidadCompra).replace(',', '.')) || 0;
+      const normalizedUnidadCompra = normalizeUnit(unidadCompra);
+      const normalizedFormatoCompra = normalizeString(formatoCompra);
+
+      const exists = options.some(o =>
+        o.name === normalizedFormatoCompra &&
+        o.size === parsedCantidad &&
+        o.unit === normalizedUnidadCompra);
+
+      if (!exists) {
+        options.push({ name: normalizedFormatoCompra, size: parsedCantidad, unit: normalizedUnidadCompra });
+      }
+
+      if (proveedor) baseProductPurchaseOptions[normalizedProductoBase].suppliers.add(proveedor);
     }
   });
+
+  // Add minimum purchase formats (1kg / 1 unit) if they don't exist
+  for (const productoBase in baseProductPurchaseOptions) {
+      const saleUnit = baseProductSaleUnits[productoBase];
+      if (saleUnit === 'Kg' || saleUnit === 'Unidad') {
+          const options = baseProductPurchaseOptions[productoBase].options;
+          const hasMinOption = options.some(o => o.size === 1 && o.unit === saleUnit);
+          if (!hasMinOption) {
+              options.push({
+                  name: saleUnit === 'Kg' ? 'Bolsa' : 'Unidad', // Generic name for the minimum unit
+                  size: 1,
+                  unit: saleUnit
+              });
+          }
+      }
+  }
+
   return { productToSkuMap, baseProductPurchaseOptions };
 }
 
@@ -2041,16 +2084,28 @@ function createAcquisitionPlan(baseProductNeeds, baseProductPurchaseOptions, inv
       const inventoryInfo = (inventoryMap && inventoryMap[baseProduct]) ? inventoryMap[baseProduct] : { quantity: 0, unit: needUnit };
       const netNeed = Math.max(0, totalNeed - inventoryInfo.quantity);
 
-      purchaseOptions.forEach((option) => {
-        if (option.unit === needUnit && option.size > 0) {
-          const numToBuy = netNeed > 0 ? Math.ceil(netNeed / option.size) : 0;
-          const waste = (numToBuy * option.size) - netNeed;
-          if (waste < minWaste) {
-            minWaste = waste;
-            bestOption = { ...option, suggestedQty: numToBuy };
-          }
+      // Si la necesidad neta es pequeña, priorizar el formato mínimo si existe.
+      if (netNeed > 0 && netNeed <= 1 && (needUnit === 'Kg' || needUnit === 'Unidad')) {
+        const minOption = purchaseOptions.find(o => o.size === 1 && o.unit === needUnit);
+        if (minOption) {
+          // Comprar la cantidad mínima para cubrir la necesidad.
+          bestOption = { ...minOption, suggestedQty: Math.ceil(netNeed) };
         }
-      });
+      }
+
+      // Si no se encontró una opción mínima o la necesidad es mayor, usar la lógica original.
+      if (!bestOption) {
+        purchaseOptions.forEach((option) => {
+          if (option.unit === needUnit && option.size > 0) {
+            const numToBuy = netNeed > 0 ? Math.ceil(netNeed / option.size) : 0;
+            const waste = (numToBuy * option.size) - netNeed;
+            if (waste < minWaste) {
+              minWaste = waste;
+              bestOption = { ...option, suggestedQty: numToBuy };
+            }
+          }
+        });
+      }
 
       if (bestOption) {
         // --- NUEVA LÓGICA PARA PROVEEDOR ---
@@ -2085,6 +2140,16 @@ function groupPlanBySupplier(acquisitionPlan) {
     dataBySupplier[supplier].push(productData);
   }
   return dataBySupplier;
+}
+
+/**
+ * Normaliza una cadena para ser usada como clave (lowercase, trim).
+ * @param {string} str La cadena a normalizar.
+ * @returns {string} La cadena normalizada.
+ */
+function normalizeKey(str) {
+  if (!str || typeof str !== 'string') return '';
+  return str.trim().toLowerCase();
 }
 
 function normalizeString(str) {
