@@ -54,14 +54,14 @@
     #save-btn { background-color: #1877f2; color: white; }
     #save-btn:disabled { background-color: #dcdfe3; color: #bec3c9; cursor: not-allowed; }
     #cancel-btn { background-color: #e4e6eb; color: #4b4f56; margin-left: 10px; }
-    #just-in-time-btn { background-color: #f0f2f5; color: #050505; border: 1px solid #bec3c9; margin-right: 10px; }
+    #just-in-time-btn, #wholesale-btn { background-color: #f0f2f5; color: #050505; border: 1px solid #bec3c9; margin-right: 10px; }
     #status { margin-right: 15px; color: #606770; }
   </style>
 </head>
 <body>
   <div class="container">
     <h1>Editar Borrador de Adquisiciones</h1>
-    <p>Ajusta las cantidades, formatos y proveedores. Usa "Calcular Compra Justa" para minimizar sobrantes.</p>
+    <p>La lista carga por defecto en modo "Mayorista". Usa los botones para recalcular según necesites.</p>
     <table id="acquisitions-table">
       <thead>
         <tr>
@@ -82,6 +82,7 @@
 
   <div class="footer-actions">
       <span id="status">Cargando datos...</span>
+      <button id="wholesale-btn" class="button">Calcular Compra Mayorista</button>
       <button id="just-in-time-btn" class="button">Calcular Compra Justa</button>
       <button id="save-btn" class="button" disabled>Guardar y Notificar</button>
       <button id="cancel-btn" class="button" onclick="google.script.host.close()">Cancelar</button>
@@ -93,6 +94,7 @@
     const tableBody = document.querySelector("#acquisitions-table tbody");
     const saveBtn = document.getElementById('save-btn');
     const justInTimeBtn = document.getElementById('just-in-time-btn');
+    const wholesaleBtn = document.getElementById('wholesale-btn');
     const statusSpan = document.getElementById('status');
 
     function processPlanData(plan) {
@@ -269,8 +271,22 @@
     function setLoadingState(isLoading, message) {
       saveBtn.disabled = isLoading;
       justInTimeBtn.disabled = isLoading;
+      wholesaleBtn.disabled = isLoading;
       statusSpan.textContent = message;
     }
+
+    wholesaleBtn.addEventListener('click', function() {
+      setLoadingState(true, 'Calculando compra mayorista...');
+      google.script.run
+        .withSuccessHandler(function(newData) {
+          planData = processPlanData(newData.acquisitionPlan);
+          allSuppliers = newData.allSuppliers;
+          renderTable();
+          setLoadingState(false, 'Cálculo mayorista completado.');
+        })
+        .withFailureHandler(handleError)
+        .getAcquisitionDataForEditor('wholesale');
+    });
 
     justInTimeBtn.addEventListener('click', function() {
       setLoadingState(true, 'Calculando compra justa...');
