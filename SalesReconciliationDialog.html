@@ -617,8 +617,18 @@
     if (response.status === 'success') {
       showToast(response.message);
 
-      // --- NEW: Add to summary if it was an approval ---
-      if (response.message && response.message.toLowerCase().includes('aprobado')) {
+      const message = response.message.toLowerCase();
+      let statusText = '';
+
+      if (message.includes('aprobado')) {
+        statusText = 'Aprobado por Gerencia';
+      } else if (message.includes('cancelado')) {
+        statusText = 'Cancelado';
+      } else if (message.includes('eliminado')) {
+        statusText = 'Eliminado';
+      }
+
+      if (statusText) {
            const order = findOrderById(orderId);
            if (order) {
                addToApprovedSummary({
@@ -626,11 +636,10 @@
                    customerName: order.customerName,
                    paymentDetail: 'N/A',
                    paymentAmount: 'N/A',
-                   status: 'Aprobado por Gerencia'
+                   status: statusText
                });
            }
       }
-      // --- END NEW ---
 
       removeOrderElements(orderId, orderRow);
     } else {
