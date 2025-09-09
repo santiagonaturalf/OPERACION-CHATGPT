@@ -75,6 +75,9 @@
       background-color: #a5d6a7;
       cursor: not-allowed;
     }
+    #approved-summary-table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+    #approved-summary-table th, #approved-summary-table td { border: 1px solid var(--border-color); padding: 8px; text-align: left; font-size: 0.9em; }
+    #approved-summary-table th { background-color: #f9f9f9; }
   </style>
 </head>
 <body>
@@ -136,6 +139,25 @@
       </div>
     </div>
 
+    <div class="section" id="approved-summary-section" style="display: none;">
+      <h3>Resumen de Aprobados en esta Sesión</h3>
+      <table id="approved-summary-table">
+        <thead>
+          <tr>
+            <th>Pedido #</th>
+            <th>Cliente</th>
+            <th>Detalle del Pago</th>
+            <th>Monto</th>
+            <th>Estado</th>
+          </tr>
+        </thead>
+        <tbody id="approved-summary-body">
+        </tbody>
+      </table>
+      <button id="print-summary-btn" class="btn" style="margin-top: 15px; background-color: var(--primary-color); color: white;">Imprimir Resumen</button>
+      <button id="clear-summary-btn" class="btn btn-delete" style="margin-top: 15px; margin-left: 10px;">Limpiar Resumen</button>
+    </div>
+
   </div>
 </div>
 <div id="toast"></div>
@@ -149,6 +171,8 @@
     selectedOrderRow: null,
     selectedContact: null
   };
+  let approvedOrdersSummary = [];
+  let allReconciliationData = {};
 
   window.addEventListener('load', loadReconciliationData);
 
@@ -161,6 +185,8 @@
   }
 
   function onDataLoaded(data) {
+    allReconciliationData = data; // Store all data globally for later use
+    approvedOrdersSummary = data.approvedSummary || []; // Initialize with persisted data
     showLoading(false);
     renderSuggestions(data.historicalSuggestions, 'historical-suggestions-list', true);
     renderSuggestions(data.highConfidenceSuggestions, 'high-confidence-suggestions-list', false);
@@ -168,6 +194,7 @@
     renderManagementApproval(data.manualListOrders);
     renderUnmatchedLists(data.unmatchedPayments, data.manualListOrders);
     renderContactList(data.manualListOrders);
+    renderApprovedSummary(); // Render the persisted summary on load
     setupEventListeners();
   }
 
@@ -341,6 +368,25 @@
     addFilterListener('payment-search', 'unassigned-payments-list');
     addFilterListener('order-search', 'unpaid-orders-list', (text) => text.replace(/[#$.]/g, ''));
     document.getElementById('go-to-dashboard-btn').addEventListener('click', () => google.script.run.showDashboard());
+    document.getElementById('print-summary-btn').addEventListener('click', printSummary);
+    document.getElementById('clear-summary-btn').addEventListener('click', handleClearSummary);
+  }
+
+  function handleClearSummary() {
+    if (confirm('¿Estás seguro de que quieres limpiar el resumen? Esta acción no se puede deshacer.')) {
+      google.script.run
+        .withSuccessHandler(res => {
+          if (res.status === 'success') {
+            approvedOrdersSummary = [];
+            renderApprovedSummary();
+            showToast(res.message);
+          } else {
+            onError(res);
+          }
+        })
+        .withFailureHandler(onError)
+        .clearSummaryState();
+    }
   }
 
   function getDynamicMessage(customerName, orderId, totalAmount) {
@@ -485,9 +531,101 @@
       .approveMatch(state.selectedPaymentId, state.selectedOrderId);
   }
 
+  function findPaymentById(paymentId) {
+    // Search in suggestions first, as they contain the full object
+    const allSuggestions = [
+        ...(allReconciliationData.historicalSuggestions || []),
+        ...(allReconciliationData.highConfidenceSuggestions || []),
+        ...(allReconciliationData.lowConfidenceSuggestions || [])
+    ];
+    const suggestion = allSuggestions.find(s => s.payment.paymentId === paymentId);
+    if (suggestion) return suggestion.payment;
+    // Fallback to the unmatched list
+    const payment = allReconciliationData.unmatchedPayments.find(p => p.paymentId === paymentId);
+    if(payment) return {...payment, amount: parseFloat(payment.amount)}; // Ensure amount is number
+    return null;
+  }
+
+  function findOrderById(orderId) {
+      // Search in all suggestion types
+      const allSuggestions = [
+          ...(allReconciliationData.historicalSuggestions || []),
+          ...(allReconciliationData.highConfidenceSuggestions || []),
+          ...(allReconciliationData.lowConfidenceSuggestions || [])
+      ];
+      const suggestion = allSuggestions.find(s => s.order.orderId == orderId);
+      if (suggestion) return suggestion.order;
+
+      // If not in suggestions, check the manual list (which contains pending orders)
+      const order = allReconciliationData.manualListOrders.find(o => o.orderId == orderId);
+      if(order) return order;
+
+      return null;
+  }
+
+  function addToApprovedSummary(item) {
+      // Prevent duplicates
+      if (approvedOrdersSummary.some(summaryItem => summaryItem.orderId === item.orderId)) {
+        return;
+      }
+      approvedOrdersSummary.push(item);
+      renderApprovedSummary();
+      // Fire-and-forget save to backend
+      google.script.run.saveSummaryState(approvedOrdersSummary);
+  }
+
+  function renderApprovedSummary() {
+      const container = document.getElementById('approved-summary-section');
+      const tbody = document.getElementById('approved-summary-body');
+      if (approvedOrdersSummary.length > 0) {
+          container.style.display = 'block';
+          tbody.innerHTML = approvedOrdersSummary.map(item => `
+              <tr>
+                  <td>#${item.orderId}</td>
+                  <td>${item.customerName}</td>
+                  <td>${item.paymentDetail}</td>
+                  <td>${typeof item.paymentAmount === 'number' ? '$' + item.paymentAmount.toLocaleString('es-CL') : 'N/A'}</td>
+                  <td>${item.status}</td>
+              </tr>
+          `).join('');
+      } else {
+          container.style.display = 'none';
+      }
+  }
+
+  function printSummary() {
+      const tableContent = document.getElementById('approved-summary-table').outerHTML;
+      const printWindow = window.open('', '', 'height=600,width=800');
+      printWindow.document.write('<html><head><title>Resumen de Pedidos Aprobados</title>');
+      printWindow.document.write('<style>body { font-family: Arial, sans-serif; } table { width: 100%; border-collapse: collapse; } th, td { border: 1px solid #ddd; padding: 8px; } th { background-color: #f2f2f2; }</style>');
+      printWindow.document.write('</head><body>');
+      printWindow.document.write('<h1>Resumen de Pedidos Aprobados</h1>');
+      printWindow.document.write(tableContent);
+      printWindow.document.write('</body></html>');
+      printWindow.document.close();
+      printWindow.focus();
+      printWindow.print();
+      printWindow.close();
+  }
+
   function onMatchApproved(response, paymentId, orderId, orderRow) {
     if (response.status === 'success') {
       showToast(response.message);
+
+      // --- NEW: Add to summary before removing elements ---
+      const payment = findPaymentById(paymentId);
+      const order = findOrderById(orderId);
+      if (payment && order) {
+          addToApprovedSummary({
+              orderId: order.orderId,
+              customerName: order.customerName,
+              paymentDetail: payment.extractedName,
+              paymentAmount: payment.amount,
+              status: 'Aprobado con Pago'
+          });
+      }
+      // --- END NEW ---
+
       removePaymentElements(paymentId);
       removeOrderElements(orderId, orderRow);
       // Reset manual selection
@@ -497,13 +635,39 @@
       document.getElementById('manual-assign-btn').disabled = true;
       document.getElementById('manual-assign-btn').textContent = 'Enlazar Pago y Pedido';
     } else {
-      onError(response, document.querySelector(`[data-payment-id="${paymentId}"]`));
+      const button = document.querySelector(`button[data-payment-id="${paymentId}"][data-order-id="${orderId}"]`) || document.getElementById('manual-assign-btn');
+      onError(response, button);
     }
   }
 
   function onManagementAction(response, orderId, orderRow) {
     if (response.status === 'success') {
       showToast(response.message);
+
+      const message = response.message.toLowerCase();
+      let statusText = '';
+
+      if (message.includes('aprobado')) {
+        statusText = 'Aprobado por Gerencia';
+      } else if (message.includes('cancelado')) {
+        statusText = 'Cancelado';
+      } else if (message.includes('eliminado')) {
+        statusText = 'Eliminado';
+      }
+
+      if (statusText) {
+           const order = findOrderById(orderId);
+           if (order) {
+               addToApprovedSummary({
+                   orderId: order.orderId,
+                   customerName: order.customerName,
+                   paymentDetail: 'N/A',
+                   paymentAmount: order.totalAmount, // Use amount from order object
+                   status: statusText
+               });
+           }
+      }
+
       removeOrderElements(orderId, orderRow);
     } else {
       const listItem = document.getElementById(`mgmt-order-${orderRow}`);

@@ -886,13 +886,59 @@ function getReconciliationData() {
 
   const manualListOrders = pendingOrders.filter(o => o.status === 'En Espera de Pago');
 
+  const summaryState = loadSummaryState(); // Load persisted summary state
+
   return {
     historicalSuggestions: historicalSuggestions.map(formatSuggestion),
     highConfidenceSuggestions: highConfidenceSuggestions.map(formatSuggestion),
     lowConfidenceSuggestions: lowConfidenceSuggestions.map(formatSuggestion),
     unmatchedPayments: unassignedPayments.map(p => ({ ...p, date: formatDate(p.date) })),
-    manualListOrders: manualListOrders.map(o => ({ ...o, date: formatDate(o.date) }))
+    manualListOrders: manualListOrders.map(o => ({ ...o, date: formatDate(o.date) })),
+    approvedSummary: summaryState // Add summary state to the return object
   };
+}
+
+/**
+ * Saves the client-side summary state to user properties.
+ * @param {Array} summaryData The array of summary objects to save.
+ */
+function saveSummaryState(summaryData) {
+  try {
+    const properties = PropertiesService.getUserProperties();
+    properties.setProperty('reconciliationSummary', JSON.stringify(summaryData));
+  } catch (e) {
+    Logger.log(`Error saving summary state: ${e.toString()}`);
+    // No need to throw an error to the client for this, as it's a background save.
+  }
+}
+
+/**
+ * Loads the summary state from user properties.
+ * @returns {Array} The parsed summary array or an empty array if not found or error.
+ */
+function loadSummaryState() {
+  try {
+    const properties = PropertiesService.getUserProperties();
+    const jsonState = properties.getProperty('reconciliationSummary');
+    return jsonState ? JSON.parse(jsonState) : [];
+  } catch (e) {
+    Logger.log(`Error loading summary state: ${e.toString()}`);
+    return [];
+  }
+}
+
+/**
+ * Clears the summary state from user properties.
+ */
+function clearSummaryState() {
+  try {
+    const properties = PropertiesService.getUserProperties();
+    properties.deleteProperty('reconciliationSummary');
+    return { status: 'success', message: 'Resumen limpiado.' };
+  } catch (e) {
+    Logger.log(`Error clearing summary state: ${e.toString()}`);
+    return { status: 'error', message: `Error al limpiar: ${e.toString()}` };
+  }
 }
 
 // --- GESTIÓN DE PEDIDOS (AGREGAR POR LOTE) ---
