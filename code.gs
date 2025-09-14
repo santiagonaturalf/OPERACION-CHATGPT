@@ -1983,7 +1983,7 @@ function getCurrentInventory() {
 }
 
 /**
- * Lee la hoja "Historico Adquisiciones" y crea un mapa con el proveedor más reciente para cada producto base.
+ * Lee la hoja "Historico Adquisiciones", la ordena por fecha y crea un mapa con el proveedor más reciente para cada producto base.
  * @returns {Object<string, string>} Un mapa donde las claves son nombres de "Producto Base" y los valores son el nombre del proveedor más reciente.
  */
 function getLatestSuppliersFromHistory() {
@@ -1996,16 +1996,35 @@ function getLatestSuppliersFromHistory() {
     return latestSuppliers;
   }
 
-  // Columnas: C (Producto Base), H (Proveedor).
-  const data = historicoSheet.getRange("C2:H" + historicoSheet.getLastRow()).getValues();
+  // 1. Get all data and headers
+  const range = historicoSheet.getDataRange();
+  const values = range.getValues();
+  const headers = values.shift(); // Remove headers from data
 
-  // Iterar hacia atrás para encontrar la entrada más reciente primero.
-  for (let i = data.length - 1; i >= 0; i--) {
-    const row = data[i];
-    const productoBase = row[0]; // Índice 0 en el rango C:H corresponde a la columna C
-    const proveedor = row[5];    // Índice 5 en el rango C:H corresponde a la columna H
+  // 2. Find column indices dynamically
+  const dateCol = headers.indexOf("Fecha de Guardado");
+  const productCol = headers.indexOf("Producto Base");
+  const supplierCol = headers.indexOf("Nombre de Proveedor");
 
-    // Si encontramos un producto y un proveedor, y aún no lo hemos guardado, lo añadimos al mapa.
+  if (dateCol === -1 || productCol === -1 || supplierCol === -1) {
+    Logger.log("Error: No se encontraron las columnas requeridas ('Fecha de Guardado', 'Producto Base', 'Nombre de Proveedor') en 'Historico Adquisiciones'.");
+    return latestSuppliers;
+  }
+
+  // 3. Sort data by date descending (most recent first)
+  values.sort((a, b) => {
+    const dateA = new Date(a[dateCol]);
+    const dateB = new Date(b[dateCol]);
+    return dateB - dateA; // Sort descending
+  });
+
+  // 4. Iterate through the sorted data to find the latest supplier for each product
+  for (const row of values) {
+    const productoBase = row[productCol];
+    const proveedor = row[supplierCol];
+
+    // If we find a product and a supplier, and we haven't already saved one for this product, add it.
+    // Since the data is sorted by date, the first one we find will be the most recent.
     if (productoBase && proveedor) {
       const normalizedProductoBase = normalizeKey(productoBase);
       if (!latestSuppliers[normalizedProductoBase]) {
@@ -2014,7 +2033,7 @@ function getLatestSuppliersFromHistory() {
     }
   }
 
-  Logger.log("Proveedores más recientes obtenidos del historial: " + JSON.stringify(latestSuppliers));
+  Logger.log("Proveedores más recientes obtenidos del historial (corregido): " + JSON.stringify(latestSuppliers));
   return latestSuppliers;
 }
 
