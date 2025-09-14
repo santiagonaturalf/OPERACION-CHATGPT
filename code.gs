@@ -63,7 +63,7 @@ function setupProjectSheets() {
 
   // Define all required sheets and their headers
   const sheetsToEnsure = [
-    { name: "Orders", headers: ["Order #", "Nombre y apellido", "Email", "Phone", "Shipping Address", "Shipping City", "Shipping Region", "Shipping Postcode", "Item Name", "Item SKU", "Item Quantity", "Item Price", "Line Total", "Tax Rate", "Tax Amount", "Importe total del pedido", "Payment Method", "Transaction ID", "Estado del pago"], index: 0 },
+    { name: "Orders", headers: ["Order #", "Nombre y apellido", "Email", "Phone", "Shipping Address", "Shipping City", "Shipping Region", "Shipping Postcode", "Item Name", "Item SKU", "Item Quantity", "Item Price", "Line Total", "Tax Rate", "Tax Amount", "Importe total del pedido", "Payment Method", "Transaction ID", "Estado del pago", "Furgon"], index: 0 },
     { name: "SKU", headers: ["Nombre Producto", "Producto Base", "Formato Compra", "Cantidad Compra", "Unidad Compra", "Categoría", "Cantidad Venta", "Unidad Venta", "Proveedor", "Teléfono"], index: 1 },
     { name: "Proveedores", headers: ["Nombre", "Teléfono"], index: 2 },
     { name: "MovimientosBancarios", headers: ["MONTO", "DESCRIPCIÓN MOVIMIENTO", "FECHA", "SALDO", "N° DOCUMENTO", "SUCURSAL", "CARGO/ABONO", "Asignado a Pedido"], index: 3 },
@@ -82,6 +82,13 @@ function setupProjectSheets() {
   const currentMovementsHeaders = movementsSheet.getRange(1, 1, 1, movementsSheet.getLastColumn()).getValues()[0];
   if (currentMovementsHeaders.indexOf("Asignado a Pedido") === -1) {
     movementsSheet.getRange(1, currentMovementsHeaders.length + 1).setValue("Asignado a Pedido").setFontWeight("bold");
+  }
+
+  // Special check for 'Furgon' column in Orders sheet
+  const ordersSheet = ss.getSheetByName("Orders");
+  const currentOrdersHeaders = ordersSheet.getRange(1, 1, 1, ordersSheet.getLastColumn()).getValues()[0];
+  if (currentOrdersHeaders.indexOf("Furgon") === -1) {
+    ordersSheet.getRange(1, currentOrdersHeaders.length + 1).setValue("Furgon").setFontWeight("bold");
   }
 
   if (createdSheets.length > 0) {
