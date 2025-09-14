@@ -1854,6 +1854,33 @@ function saveAcquisitions(finalPlan) {
   return { status: "success", message: "Lista de adquisiciones guardada con éxito." };
 }
 
+function clearAcquisitionList() {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    let sheet = ss.getSheetByName("Lista de Adquisiciones");
+    if (sheet) {
+      sheet.clear();
+      sheet.clearConditionalFormatRules();
+    } else {
+      sheet = ss.insertSheet("Lista de Adquisiciones");
+    }
+
+    const headers = ["Producto Base", "Cantidad a Comprar", "Formato de Compra", "Inventario Actual", "Unidad Inventario Actual", "Necesidad de Venta", "Unidad Venta", "Inventario al Finalizar", "Unidad Inventario Final", "Precio Adq. Anterior", "Precio Adq. HOY", "Proveedor"];
+    sheet.getRange("A1:L1").setValues([headers]).setFontWeight("bold");
+    sheet.getRange("A1:C1").setBackground("#d9ead3");
+    sheet.getRange("D1:E1").setBackground("#fff2cc");
+    sheet.getRange("F1:K1").setBackground("#f4cccc");
+    sheet.getRange("L1").setBackground("#d9d9d9");
+    sheet.setFrozenRows(1);
+
+    SpreadsheetApp.flush(); // Ensure changes are saved
+    return { status: 'success', message: 'La lista de adquisiciones ha sido limpiada con éxito.' };
+  } catch (e) {
+    Logger.log(`Error en clearAcquisitionList: ${e.stack}`);
+    return { status: 'error', message: `Ocurrió un error al limpiar la lista: ${e.message}` };
+  }
+}
+
 function generateAcquisitionDRAFT() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const ordersSheet = ss.getSheetByName('Orders');

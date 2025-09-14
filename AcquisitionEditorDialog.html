@@ -108,6 +108,7 @@
       <button id="wholesale-btn" class="button">Calcular Compra Mayorista</button>
       <button id="just-in-time-btn" class="button">Calcular Compra Justa</button>
       <button id="show-all-btn" class="button">Mostrar productos sin necesidad de compra</button>
+      <button id="clear-list-btn" class="button" style="background-color: #dc3545; color: white;">Limpiar Lista de Adquisiciones</button>
       <button id="save-btn" class="button" disabled>Guardar y Notificar</button>
       <button id="cancel-btn" class="button" onclick="google.script.host.close()">Cancelar</button>
   </div>
@@ -121,6 +122,7 @@
     const justInTimeBtn = document.getElementById('just-in-time-btn');
     const wholesaleBtn = document.getElementById('wholesale-btn');
     const showAllBtn = document.getElementById('show-all-btn');
+    const clearListBtn = document.getElementById('clear-list-btn');
     const statusSpan = document.getElementById('status');
     const categorySelect = document.getElementById('category-filter');
     const supplierFilter = document.getElementById('supplier-filter');
@@ -346,8 +348,27 @@
       justInTimeBtn.disabled = isLoading;
       wholesaleBtn.disabled = isLoading;
       showAllBtn.disabled = isLoading;
+      if(clearListBtn) clearListBtn.disabled = isLoading;
       statusSpan.textContent = message;
     }
+
+    clearListBtn.addEventListener('click', function() {
+      if (confirm('¿Estás seguro de que quieres limpiar TODA la lista de adquisiciones? Esta acción no se puede deshacer.')) {
+        setLoadingState(true, 'Limpiando lista...');
+        google.script.run
+          .withSuccessHandler(function(response) {
+            if (response.status === 'success') {
+              planData = [];
+              renderTable();
+              statusSpan.textContent = 'Lista limpiada. Puede recalcular o cerrar.';
+            }
+            setLoadingState(false, response.message);
+            alert(response.message);
+          })
+          .withFailureHandler(handleError)
+          .clearAcquisitionList();
+      }
+    });
 
     function handleDataSuccess(newData) {
       planData = processPlanData(newData.acquisitionPlan);
