@@ -472,14 +472,15 @@ function indexer(headers) {
   const norm = s => String(s || '').toLowerCase().trim();
   const idxOf = (...names) => headers.findIndex(h => names.includes(norm(h)));
   return {
-    numPedido: idxOf('número de pedido','numero de pedido','nº pedido','n° pedido','n pedido','número de ped'),
-    nombre:    idxOf('nombre completo','cliente','nombre','nombre y apellido'),
+    numPedido: idxOf('order #', 'número de pedido','numero de pedido','nº pedido','n° pedido','n pedido','número de ped'),
+    nombre:    idxOf('nombre y apellido', 'nombre completo','cliente','nombre'),
     telefono:  idxOf('teléfono','telefono','phone','tel'),
     direccion: idxOf('dirección','direccion','shipping address','dirección líneas 1','direccion lineas 1'),
     depto:     idxOf('depto.','depto','departamento','depto/condominio','depto/condomi','dirección líneas 2','direccion lineas 2'),
     comuna:    idxOf('comuna','shipping region','ciudad'),
     estado:    idxOf('estado','estado del pago'),
-    furgon:    idxOf('furgón','furgon','van','furgón asignado')
+    furgon:    idxOf('furgón','furgon','van','furgón asignado'),
+    cantidad:  idxOf('item quantity', 'cantidad')
   };
 }
 
@@ -2979,4 +2980,235 @@ function getAllCategories() {
   if (catCol === -1) return [];
   const values = sku.getRange(2, catCol + 1, last - 1, 1).getValues().flat();
   return [...new Set(values.filter(v => v && String(v).trim() !== ''))].sort();
+}
+
+/**********************
+ * DATA CLEANING FLOW (PASO 2)
+ **********************/
+
+/**
+ * Orchestrates the data cleaning process.
+ * This is the entry point for the "Paso 2: Limpiar Datos" button.
+ * It sequentially checks for duplicates and new suppliers, showing a dialog for the first issue found.
+ */
+function startDashboardRefresh() {
+  // First, try to find and show the duplicate orders dialog.
+  const duplicatesFoundAndShown = findAndShowDuplicateDialog();
+
+  // If no duplicates were found, try to find and show the new suppliers dialog.
+  if (!duplicatesFoundAndShown) {
+    const newSuppliersFoundAndShown = findAndShowNewSupplierDialog();
+
+    // If no new suppliers were found either, inform the user.
+    if (!newSuppliersFoundAndShown) {
+      SpreadsheetApp.getUi().alert('No hay datos para limpiar.');
+    }
+  }
+}
+
+/**
+ * Finds customers with multiple order numbers and shows a dialog to manage them.
+ * @returns {boolean} True if the dialog was shown, false otherwise.
+ */
+function findAndShowDuplicateDialog() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ordersSheet = ss.getSheetByName('Orders');
+  if (!ordersSheet || ordersSheet.getLastRow() < 2) {
+    return false; // No data to check
+  }
+
+  const headers = ordersSheet.getRange(1, 1, 1, ordersSheet.getLastColumn()).getValues()[0];
+  const idx = indexer(headers);
+  const orderIdCol = idx.numPedido;
+  const customerNameCol = idx.nombre;
+
+  if (orderIdCol < 0 || customerNameCol < 0) {
+    Logger.log("Could not find 'Order #' or 'Nombre y apellido' columns.");
+    return false;
+  }
+
+  const data = ordersSheet.getRange(2, 1, ordersSheet.getLastRow() - 1, Math.max(orderIdCol, customerNameCol) + 1).getValues();
+
+  const ordersByCustomer = {};
+  data.forEach(row => {
+    const orderId = String(row[orderIdCol]).trim();
+    const customerName = String(row[customerNameCol]).trim();
+
+    if (orderId && customerName) {
+      if (!ordersByCustomer[customerName]) {
+        ordersByCustomer[customerName] = new Set();
+      }
+      ordersByCustomer[customerName].add(orderId);
+    }
+  });
+
+  const duplicates = {};
+  for (const customer in ordersByCustomer) {
+    if (ordersByCustomer[customer].size > 1) {
+      duplicates[customer] = Array.from(ordersByCustomer[customer]);
+    }
+  }
+
+  if (Object.keys(duplicates).length > 0) {
+    const template = HtmlService.createTemplateFromFile('DuplicateDialog');
+    template.duplicates = JSON.stringify(duplicates);
+    const html = template.evaluate().setWidth(600).setHeight(400);
+    SpreadsheetApp.getUi().showModalDialog(html, 'Limpiar Pedidos Duplicados');
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Deletes all rows associated with the given order numbers.
+ * This is called from the DuplicateDialog.
+ * @param {string[]} orderNumbers - An array of order numbers to delete.
+ * @returns {string} A result message.
+ */
+function deleteOrdersByNumber(orderNumbers) {
+  if (!orderNumbers || !Array.isArray(orderNumbers) || orderNumbers.length === 0) {
+    throw new Error('No se proporcionaron números de pedido para eliminar.');
+  }
+
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName('Orders');
+    if (!sheet) throw new Error('No se encontró la hoja "Orders".');
+
+    const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    const idx = indexer(headers);
+    const orderIdCol = idx.numPedido;
+    const quantityCol = idx.cantidad;
+
+    if (orderIdCol < 0 || quantityCol < 0) {
+      throw new Error("No se encontraron las columnas 'Order #' o 'Item Quantity' en la hoja 'Orders'.");
+    }
+
+    const data = sheet.getDataRange().getValues();
+    let rowsUpdated = 0;
+    const ordersToDelete = new Set(orderNumbers);
+
+    for (let i = 1; i < data.length; i++) { // Start from 1 to skip header
+      const currentOrderId = String(data[i][orderIdCol]).trim();
+      if (ordersToDelete.has(currentOrderId)) {
+        const rowNum = i + 1;
+        const rowRange = sheet.getRange(rowNum, 1, 1, sheet.getLastColumn());
+        rowRange.setBackground('#ff0000'); // Red background
+
+        const quantityCell = sheet.getRange(rowNum, quantityCol + 1);
+        const currentQuantity = quantityCell.getValue();
+        if (!String(currentQuantity).startsWith('E')) {
+          quantityCell.setValue('E' + currentQuantity);
+        }
+        rowsUpdated++;
+      }
+    }
+
+    if (rowsUpdated > 0) {
+      SpreadsheetApp.flush();
+      return `Se marcaron ${rowsUpdated} fila(s) de ${orderNumbers.length} pedido(s) como eliminadas.`;
+    } else {
+      return 'No se encontraron filas que coincidieran con los pedidos seleccionados.';
+    }
+  } catch (e) {
+    Logger.log(`Error en deleteOrdersByNumber: ${e.stack}`);
+    throw new Error(`Ocurrió un error: ${e.message}`);
+  }
+}
+
+/**
+ * Finds suppliers from the SKU sheet that are not in the Proveedores sheet
+ * and shows a dialog to add them.
+ * @returns {boolean} True if the dialog was shown, false otherwise.
+ */
+function findAndShowNewSupplierDialog() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const skuSheet = ss.getSheetByName('SKU');
+  const proveedoresSheet = ss.getSheetByName('Proveedores');
+
+  if (!skuSheet) {
+    Logger.log("SKU sheet not found. Cannot check for new suppliers.");
+    return false;
+  }
+
+  // Get all unique suppliers from SKU sheet (Column I)
+  const skuSuppliers = new Set();
+  if (skuSheet.getLastRow() > 1) {
+    const skuSupplierData = skuSheet.getRange(2, 9, skuSheet.getLastRow() - 1, 1).getValues();
+    skuSupplierData.forEach(row => {
+      const supplier = String(row[0]).trim();
+      if (supplier) {
+        skuSuppliers.add(supplier);
+      }
+    });
+  }
+
+  // Get all existing suppliers from Proveedores sheet (Column A)
+  const existingSuppliers = new Set();
+  if (proveedoresSheet && proveedoresSheet.getLastRow() > 1) {
+    const existingSupplierData = proveedoresSheet.getRange(2, 1, proveedoresSheet.getLastRow() - 1, 1).getValues();
+    existingSupplierData.forEach(row => {
+      const supplier = String(row[0]).trim();
+      if (supplier) {
+        existingSuppliers.add(supplier);
+      }
+    });
+  }
+
+  // Find suppliers that are in SKU but not in Proveedores
+  const newSuppliers = [];
+  for (const supplier of skuSuppliers) {
+    if (!existingSuppliers.has(supplier)) {
+      newSuppliers.push(supplier);
+    }
+  }
+
+  if (newSuppliers.length > 0) {
+    const template = HtmlService.createTemplateFromFile('NewSupplierDialog');
+    template.newSuppliers = JSON.stringify(newSuppliers);
+    const html = template.evaluate().setWidth(500).setHeight(400);
+    SpreadsheetApp.getUi().showModalDialog(html, 'Añadir Nuevos Proveedores');
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Saves new suppliers and their phone numbers to the 'Proveedores' sheet.
+ * @param {Object} supplierData - An object where keys are supplier names and values are phone numbers.
+ * @returns {string} A result message.
+ */
+function saveNewSuppliers(supplierData) {
+  if (!supplierData || Object.keys(supplierData).length === 0) {
+    throw new Error('No se proporcionaron datos de proveedores para guardar.');
+  }
+
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    let sheet = ss.getSheetByName('Proveedores');
+    if (!sheet) {
+      sheet = ss.insertSheet('Proveedores');
+      sheet.getRange(1, 1, 1, 2).setValues([['Nombre', 'Teléfono']]).setFontWeight('bold');
+    }
+
+    const rowsToAppend = [];
+    for (const name in supplierData) {
+      const phone = supplierData[name];
+      rowsToAppend.push([name, phone]);
+    }
+
+    if (rowsToAppend.length > 0) {
+      sheet.getRange(sheet.getLastRow() + 1, 1, rowsToAppend.length, 2).setValues(rowsToAppend);
+      SpreadsheetApp.flush();
+      return `${rowsToAppend.length} nuevo(s) proveedor(es) guardado(s) exitosamente.`;
+    } else {
+      return 'No se guardó ningún proveedor nuevo.';
+    }
+
+  } catch (e) {
+    Logger.log(`Error in saveNewSuppliers: ${e.stack}`);
+    throw new Error(`Ocurrió un error al guardar los proveedores: ${e.message}`);
+  }
 }

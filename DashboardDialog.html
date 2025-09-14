@@ -374,7 +374,7 @@
     document.getElementById('paste-import-btn').addEventListener('click', () => google.script.run.showPasteImportDialog());
     document.getElementById('clean-btn').addEventListener('click', () => {
         setLoadingState(true, 'Iniciando limpieza de datos...');
-        google.script.run.withSuccessHandler(handleSuccess).withFailureHandler(handleError).startDashboardRefresh();
+        google.script.run.withSuccessHandler(() => setLoadingState(false)).withFailureHandler(handleError).startDashboardRefresh();
     });
     document.getElementById('import-movements-btn').addEventListener('click', () => google.script.run.showImportMovementsDialog());
     document.getElementById('conciliation-btn').addEventListener('click', () => google.script.run.showConciliationDialog());
