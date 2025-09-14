@@ -580,14 +580,18 @@ function generatePrintableRouteSheets(vanName) {
     packagingSheet = ss.insertSheet(packagingSheetName);
   }
 
+  // Añadir título principal a la hoja de envasado
+  packagingSheet.getRange("A1").setValue(vanName).setFontSize(18).setFontWeight('bold').setHorizontalAlignment('center');
+  packagingSheet.getRange("A1:D1").merge();
+
   const packagingHeaders = ["Orden Ruta", "Nº Pedido", "Numero de Bultos", "Nombre Envasador"];
-  packagingSheet.getRange("A1:D1").setValues([packagingHeaders]).setFontWeight('bold');
+  packagingSheet.getRange("A2:D2").setValues([packagingHeaders]).setFontWeight('bold');
 
   if (finalPackagingData.length > 0) {
-    packagingSheet.getRange(2, 1, finalPackagingData.length, 4).setValues(finalPackagingData);
+    packagingSheet.getRange(3, 1, finalPackagingData.length, 4).setValues(finalPackagingData);
 
-    // Aplicar formato a la tabla
-    const tableRange = packagingSheet.getRange(1, 1, finalPackagingData.length + 1, 4);
+    // Aplicar formato a la tabla (incluyendo encabezados)
+    const tableRange = packagingSheet.getRange(2, 1, finalPackagingData.length + 1, 4);
     tableRange.setHorizontalAlignment("center")
               .setVerticalAlignment("middle")
               .setWrapStrategy(SpreadsheetApp.WrapStrategy.WRAP);
