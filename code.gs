@@ -1725,7 +1725,6 @@ function getAcquisitionDataForEditor(mode = 'wholesale') {
   const baseToCategory = new Map();
   const allCategoriesSet = new Set();
   if (skuSheet.getLastRow() > 1) {
-    // Columnas: B (Producto Base), F (Categoría)
     const skuCategoryData = skuSheet.getRange("B2:F" + skuSheet.getLastRow()).getValues();
     skuCategoryData.forEach(row => {
       const baseProduct = row[0]; // Col B
@@ -1737,15 +1736,49 @@ function getAcquisitionDataForEditor(mode = 'wholesale') {
     });
   }
 
-  // 0. Get current inventory first
-  const inventoryMap = getCurrentInventory();
+  // --- START MODIFICATION: Check if "Lista de Adquisiciones" is populated ---
+  const acquisitionsSheet = ss.getSheetByName("Lista de Adquisiciones");
+  const populatedAcquisitionsMap = new Map();
+  let isAcquisitionsSheetPopulated = false;
 
-  // 1. Generar el plan de adquisiciones (lógica reutilizada)
+  if (acquisitionsSheet && acquisitionsSheet.getLastRow() > 1) {
+      isAcquisitionsSheetPopulated = true;
+      const acquisitionsData = acquisitionsSheet.getRange(2, 1, acquisitionsSheet.getLastRow() - 1, acquisitionsSheet.getLastColumn()).getValues();
+      const headers = acquisitionsSheet.getRange(1, 1, 1, acquisitionsSheet.getLastColumn()).getValues()[0];
+      const productCol = headers.indexOf("Producto Base");
+      const qtyCol = headers.indexOf("Cantidad a Comprar");
+
+      if (productCol !== -1 && qtyCol !== -1) {
+          acquisitionsData.forEach(row => {
+              const productName = row[productCol];
+              const qty = parseFloat(String(row[qtyCol]).replace(",", ".")) || 0;
+              if (productName) {
+                  populatedAcquisitionsMap.set(normalizeKey(productName), qty);
+              }
+          });
+      }
+  }
+  // --- END MODIFICATION ---
+
+  const inventoryMap = getCurrentInventory();
   const { productToSkuMap, baseProductPurchaseOptions } = getPurchaseDataMaps(skuSheet);
   const baseProductNeeds = calculateBaseProductNeeds(ordersSheet, productToSkuMap);
   const acquisitionPlan = createAcquisitionPlan(baseProductNeeds, baseProductPurchaseOptions, inventoryMap, mode);
 
-  // --- NEW: Enriquecer plan con categorías ---
+  // --- START MODIFICATION: Override suggested quantities if "Lista de Adquisiciones" is populated ---
+  if (isAcquisitionsSheetPopulated) {
+      acquisitionPlan.forEach(item => {
+          const key = normalizeKey(item.productName);
+          if (populatedAcquisitionsMap.has(key)) {
+              item.suggestedQty = populatedAcquisitionsMap.get(key);
+          } else {
+              item.suggestedQty = 0; // If not in the populated list, default to 0
+          }
+      });
+  }
+  // --- END MODIFICATION ---
+
+  // Enriquecer plan con categorías
   let hasUncategorized = false;
   acquisitionPlan.forEach(item => {
     const key = normalizeKey(item.productName);
@@ -1760,10 +1793,9 @@ function getAcquisitionDataForEditor(mode = 'wholesale') {
       allCategoriesSet.add('Sin Categoría');
   }
 
-  // 2. Obtener la lista de proveedores
   const supplierData = proveedoresSheet.getRange("A2:A" + proveedoresSheet.getLastRow()).getValues().flat().filter(String);
   const supplierSet = new Set(supplierData);
-  supplierSet.add("Patio Mayorista"); // Asegurarse de que "Patio Mayorista" esté disponible
+  supplierSet.add("Patio Mayorista");
 
   return {
     acquisitionPlan: acquisitionPlan,
