@@ -1596,7 +1596,7 @@ function generatePackagingSheet(selectedCategories) {
         }
       }
 
-      productRows.push([products[productName], inventoryValue, productName]);
+      productRows.push([products[productName].total, inventoryValue, productName]);
     });
 
     if (productRows.length > 0) {
