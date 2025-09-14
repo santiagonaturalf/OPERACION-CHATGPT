@@ -3167,7 +3167,8 @@ function findAndShowNewSupplierDialog() {
   if (newSuppliers.length > 0) {
     const template = HtmlService.createTemplateFromFile('NewSupplierDialog');
     template.newSuppliers = JSON.stringify(newSuppliers);
-    const html = template.evaluate().setWidth(500).setHeight(400);
+    template.existingSuppliers = JSON.stringify(Array.from(existingSuppliers).sort()); // Pass existing suppliers
+    const html = template.evaluate().setWidth(800).setHeight(500); // Increased width and height
     SpreadsheetApp.getUi().showModalDialog(html, 'Añadir Nuevos Proveedores');
     return true;
   }
@@ -3180,35 +3181,62 @@ function findAndShowNewSupplierDialog() {
  * @param {Object} supplierData - An object where keys are supplier names and values are phone numbers.
  * @returns {string} A result message.
  */
-function saveNewSuppliers(supplierData) {
-  if (!supplierData || Object.keys(supplierData).length === 0) {
-    throw new Error('No se proporcionaron datos de proveedores para guardar.');
+function saveOrAssignSuppliers(data) {
+  if (!data || (!data.newEntries && !data.assignments)) {
+    throw new Error('No se proporcionaron datos válidos para guardar.');
   }
 
-  try {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    let sheet = ss.getSheetByName('Proveedores');
-    if (!sheet) {
-      sheet = ss.insertSheet('Proveedores');
-      sheet.getRange(1, 1, 1, 2).setValues([['Nombre', 'Teléfono']]).setFontWeight('bold');
-    }
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const proveedoresSheet = ss.getSheetByName('Proveedores');
+  const skuSheet = ss.getSheetByName('SKU');
+  let newEntriesCount = 0;
+  let assignmentsCount = 0;
+  let updatedRowsCount = 0;
 
-    const rowsToAppend = [];
-    for (const name in supplierData) {
-      const phone = supplierData[name];
-      rowsToAppend.push([name, phone]);
+  // 1. Procesa nuevas entradas
+  if (data.newEntries && data.newEntries.length > 0) {
+    const rowsToAppend = data.newEntries.map(entry => [entry.name, entry.phone]);
+    if(rowsToAppend.length > 0){
+        proveedoresSheet.getRange(proveedoresSheet.getLastRow() + 1, 1, rowsToAppend.length, 2).setValues(rowsToAppend);
+        newEntriesCount = rowsToAppend.length;
     }
-
-    if (rowsToAppend.length > 0) {
-      sheet.getRange(sheet.getLastRow() + 1, 1, rowsToAppend.length, 2).setValues(rowsToAppend);
-      SpreadsheetApp.flush();
-      return `${rowsToAppend.length} nuevo(s) proveedor(es) guardado(s) exitosamente.`;
-    } else {
-      return 'No se guardó ningún proveedor nuevo.';
-    }
-
-  } catch (e) {
-    Logger.log(`Error in saveNewSuppliers: ${e.stack}`);
-    throw new Error(`Ocurrió un error al guardar los proveedores: ${e.message}`);
   }
+
+  // 2. Procesa asignaciones
+  if (data.assignments && data.assignments.length > 0) {
+    const skuData = skuSheet.getDataRange().getValues();
+    const headers = skuData.shift(); // remove headers
+    const supplierColIndex = headers.indexOf('Proveedor');
+
+    if (supplierColIndex === -1) {
+      throw new Error("No se encontró la columna 'Proveedor' en la hoja 'SKU'.");
+    }
+
+    const assignmentsMap = new Map(data.assignments.map(a => [a.from, a.to]));
+
+    skuData.forEach((row, i) => {
+      const currentSupplier = row[supplierColIndex];
+      if (assignmentsMap.has(currentSupplier)) {
+        const newSupplier = assignmentsMap.get(currentSupplier);
+        skuSheet.getRange(i + 2, supplierColIndex + 1).setValue(newSupplier);
+        updatedRowsCount++;
+      }
+    });
+    assignmentsCount = assignmentsMap.size;
+  }
+
+  SpreadsheetApp.flush();
+
+  let message = "Proceso completado.\n";
+  if (newEntriesCount > 0) {
+    message += `- Se crearon ${newEntriesCount} nuevos proveedores.\n`;
+  }
+  if (updatedRowsCount > 0) {
+    message += `- Se actualizaron ${updatedRowsCount} registros en la hoja SKU para ${assignmentsCount} asignaciones.`;
+  }
+  if (newEntriesCount === 0 && updatedRowsCount === 0) {
+    message = "No se realizaron cambios."
+  }
+
+  return message;
 }
