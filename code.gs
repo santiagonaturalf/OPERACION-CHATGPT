@@ -1471,25 +1471,80 @@ function getPackagingData() {
       productTotals[name] += parseInt(qty, 10) || 0;
     }
   });
+
+  const stockMap = getStockFromOrders();
   const categorySummary = {};
+
   for (const productName in productTotals) {
     const category = skuMap[productName] ? skuMap[productName].category : 'Sin Categoría';
-    if (!categorySummary[category]) { categorySummary[category] = { count: 0, products: {} }; }
+    if (!categorySummary[category]) {
+      categorySummary[category] = { count: 0, products: {} };
+    }
     categorySummary[category].count++;
-    categorySummary[category].products[productName] = productTotals[productName];
+
+    const inventoryInfo = stockMap[productName];
+    let inventoryValue = 'No encontrado';
+    if (inventoryInfo) {
+      const stock = String(inventoryInfo.quantity);
+      const unit = String(inventoryInfo.unit);
+      if (stock || unit) {
+        inventoryValue = `${stock} ${unit}`.trim();
+      }
+    }
+
+    categorySummary[category].products[productName] = {
+      total: productTotals[productName],
+      stock: inventoryValue
+    };
   }
   return categorySummary;
+}
+
+/**
+ * Crea un mapa de stock desde la hoja "Orders".
+ * @returns {Object<string, {quantity: any, unit: any}>} Un mapa donde las claves son
+ *   nombres de productos y los valores son objetos con stock y unidad.
+ */
+function getStockFromOrders() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ordersSheet = ss.getSheetByName('Orders');
+  if (!ordersSheet) {
+    Logger.log("Error: La hoja 'Orders' no fue encontrada.");
+    return {};
+  }
+  const stockMap = {};
+  const lastRow = ordersSheet.getLastRow();
+  if (lastRow < 2) {
+    return stockMap;
+  }
+
+  // Columnas: J (Nombre Producto, index 10), AA (Stock Real, index 27), AB (Unidad Venta, index 28)
+  const data = ordersSheet.getRange(2, 10, lastRow - 1, 19).getValues(); // Lee desde la columna J hasta la AB
+
+  data.forEach(row => {
+    const productName = row[0];  // Columna J (índice 0 en el rango J:AB)
+    const stockReal = row[17]; // Columna AA (índice 17 en el rango J:AB)
+    const unit = row[18];      // Columna AB (índice 18 en el rango J:AB)
+
+    // Solo agregar si el producto existe y no ha sido mapeado aún.
+    // Esto asume que el stock es el mismo para todas las entradas del mismo producto.
+    if (productName && stockMap[productName] === undefined) {
+      stockMap[productName] = {
+        quantity: stockReal,
+        unit: unit
+      };
+    }
+  });
+
+  return stockMap;
 }
 
 function generatePackagingSheet(selectedCategories) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const data = getPackagingData();
 
-  // Obtener los mapas de datos necesarios para el inventario
-  const inventoryMap = getCurrentInventory();
-  const skuSheet = ss.getSheetByName('SKU');
-  if (!skuSheet) throw new Error("La hoja 'SKU' no fue encontrada.");
-  const skuMap = getSkuMap(skuSheet);
+  // Obtener el mapa de stock directamente desde la hoja "Orders".
+  const stockMap = getStockFromOrders();
 
   // Crear una hoja con un nombre único basado en la fecha
   const date = new Date();
@@ -1528,11 +1583,18 @@ function generatePackagingSheet(selectedCategories) {
 
     const productRows = [];
     sortedProductNames.forEach(productName => {
-      const skuInfo = skuMap[productName];
-      const baseProduct = skuInfo ? skuInfo.base : null;
-      const inventoryInfo = baseProduct ? inventoryMap[baseProduct] : null;
+      const inventoryInfo = stockMap[productName];
+
       // Formatear el valor del inventario para incluir la unidad
-      const inventoryValue = inventoryInfo ? `${inventoryInfo.quantity} ${inventoryInfo.unit}` : 'No encontrado';
+      let inventoryValue = 'No encontrado';
+      if (inventoryInfo) {
+        const stock = String(inventoryInfo.quantity);
+        const unit = String(inventoryInfo.unit);
+        // Mostrar valor solo si hay cantidad o unidad.
+        if (stock || unit) {
+          inventoryValue = `${stock} ${unit}`.trim();
+        }
+      }
 
       productRows.push([products[productName], inventoryValue, productName]);
     });

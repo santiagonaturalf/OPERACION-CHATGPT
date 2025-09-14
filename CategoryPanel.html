@@ -103,7 +103,7 @@
 
 <script>
 /* ---------- Estado ---------- */
-let DATA = {};            // { "Fruta": {count, products:{ "Manzana": 12, ... }} , ...}
+let DATA = {};            // { "Fruta": {count, products:{ "Manzana": { total: 12, stock: "5 Kilo" }, ... }} , ...}
 let SELECTED = new Set(); // Categorías marcadas
 let ALL_CATEGORIES = [];  // Para el selector de edición
 let CURRENT_EDIT = { name: null, cat: null };
@@ -144,21 +144,26 @@ function render(data){
       <div class="body">
         <table>
           <thead><tr>
-            <th style="width:45%;">Producto</th>
-            <th style="width:15%;">Cant.</th>
-            <th style="width:25%;">Categoría</th>
+            <th style="width:40%;">Producto</th>
+            <th style="width:15%;">Cant. Pedida</th>
+            <th style="width:15%;">Stock Real</th>
+            <th style="width:15%;">Categoría</th>
             <th style="width:15%; text-align:right;">Acciones</th>
           </tr></thead>
           <tbody>
-          ${byKey(info.products).map(name => `
+          ${byKey(info.products).map(name => {
+            const productData = info.products[name];
+            return `
             <tr data-name="${esc(name)}" data-cat="${esc(cat)}">
               <td>${esc(name)}</td>
-              <td>${info.products[name]}</td>
+              <td>${productData.total}</td>
+              <td>${esc(productData.stock)}</td>
               <td><span class="tag">${esc(cat)}</span></td>
               <td class="row-actions">
                 <button class="btn ghost btn-edit">✏️ Editar</button>
               </td>
-            </tr>`).join('')}
+            </tr>`
+          }).join('')}
           </tbody>
         </table>
       </div>
