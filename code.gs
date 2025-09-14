@@ -2361,6 +2361,97 @@ function importOrdersFromPastedText(textData) {
     }
     // --- FIN LÓGICA ---
 
+    // --- INICIO: LÓGICA PARA AGREGAR STOCK REAL Y UNIDAD DE VENTA (v2) ---
+    const inventarioSheet = mainSpreadsheet.getSheetByName("Inventario Actual");
+    if (!inventarioSheet) {
+      Logger.log("ADVERTENCIA: No se encontró la hoja 'Inventario Actual'. No se pudo poblar 'Stock Real' ni 'Unidad Venta'.");
+    } else {
+      Logger.log("Paso 1: Leyendo y procesando 'Inventario Actual'.");
+      const inventarioData = inventarioSheet.getDataRange().getValues();
+      const inventarioHeaders = inventarioData.shift();
+      const productCol = inventarioHeaders.indexOf("Producto Base");
+      const stockCol = inventarioHeaders.indexOf("Stock Real");
+      const unitCol = inventarioHeaders.indexOf("Unidad Venta");
+      const timestampCol = inventarioHeaders.indexOf("Timestamp");
+
+      const latestInventory = new Map();
+
+      if (productCol !== -1 && stockCol !== -1 && unitCol !== -1 && timestampCol !== -1) {
+        inventarioData.forEach(row => {
+          const productName = row[productCol];
+          if (!productName) return; // Si no hay nombre de producto, saltar fila
+
+          // Convertir la fecha a un objeto Date válido, manejando el formato D/M/YYYY HH:MM:SS y D/M/YYYY
+          const dateParts = String(row[timestampCol]).split(/[\s/:]+/);
+          let timestamp;
+          if (dateParts.length >= 6) { // Formato con hora: "1/9/2025 12:40:26"
+             // new Date(año, mes-1, dia, hora, min, seg)
+             timestamp = new Date(dateParts[2], dateParts[1] - 1, dateParts[0], dateParts[3], dateParts[4], dateParts[5]);
+          } else if (dateParts.length === 3) { // Formato solo fecha: "1/9/2025"
+             timestamp = new Date(dateParts[2], dateParts[1] - 1, dateParts[0]);
+          } else {
+             timestamp = new Date(row[timestampCol]); // Fallback para otros formatos
+          }
+
+          const normalizedProduct = normalizeKey(productName); // Normalizar la clave
+          if (normalizedProduct && !isNaN(timestamp.getTime())) {
+            const existing = latestInventory.get(normalizedProduct);
+            if (!existing || timestamp > existing.timestamp) {
+              latestInventory.set(normalizedProduct, {
+                stock: row[stockCol],
+                unit: row[unitCol],
+                timestamp: timestamp
+              });
+            }
+          }
+        });
+        Logger.log(`Paso 1 completado. Se procesaron ${latestInventory.size} productos únicos en el inventario.`);
+      } else {
+        Logger.log("ADVERTENCIA: No se encontraron todas las columnas necesarias ('Producto Base', 'Stock Real', 'Unidad Venta', 'Timestamp') en 'Inventario Actual'.");
+      }
+
+      Logger.log("Paso 2: Agregando encabezados a la hoja 'Orders'.");
+      const stockRealCol = 27; // Columna AA
+      const unidadVentaCol = 28; // Columna AB
+      ordersSheet.getRange(1, stockRealCol).setValue("Stock Real").setFontWeight("bold");
+      ordersSheet.getRange(1, unidadVentaCol).setValue("Unidad Venta").setFontWeight("bold");
+
+      Logger.log("Paso 3: Poblando las nuevas columnas.");
+      if (reorderedData.length > 0) {
+        const ordersDataRange = ordersSheet.getRange(2, 1, reorderedData.length, ordersSheet.getLastColumn());
+        const ordersData = ordersDataRange.getValues();
+        const productoBaseColIndex = 25; // Columna Z tiene el "Producto Base"
+
+        const valuesForAA = [];
+        const valuesForAB = [];
+        let foundCount = 0;
+
+        for (let i = 0; i < ordersData.length; i++) {
+          const baseProduct = ordersData[i][productoBaseColIndex];
+          const normalizedBaseProduct = normalizeKey(baseProduct); // Normalizar para la búsqueda
+          const inventoryInfo = latestInventory.get(normalizedBaseProduct);
+
+          if (inventoryInfo) {
+            valuesForAA.push([inventoryInfo.stock]);
+            valuesForAB.push([inventoryInfo.unit]);
+            foundCount++;
+          } else {
+            valuesForAA.push([""]);
+            valuesForAB.push([""]);
+          }
+        }
+
+        Logger.log(`Paso 3 completado. Se encontraron ${foundCount} de ${ordersData.length} productos en el inventario.`);
+
+        if (valuesForAA.length > 0) {
+          ordersSheet.getRange(2, stockRealCol, valuesForAA.length, 1).setValues(valuesForAA);
+          ordersSheet.getRange(2, unidadVentaCol, valuesForAB.length, 1).setValues(valuesForAB);
+          Logger.log("Datos escritos en las columnas AA y AB.");
+        }
+      }
+    }
+    // --- FIN: LÓGICA PARA AGREGAR STOCK REAL Y UNIDAD DE VENTA (v2) ---
+
     return `¡Éxito! Se han importado ${reorderedData.length} filas de pedidos.`;
 
   } catch (e) {
