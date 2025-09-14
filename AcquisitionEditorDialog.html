@@ -4,7 +4,7 @@
   <base target="_top">
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; margin: 0; background-color: #f0f2f5; color: #333; }
-    .container { padding: 20px; }
+    .container { padding: 20px; padding-bottom: 80px; }
     h1 { color: #1c1e21; margin-top: 0; }
     .filters { margin-top: 15px; margin-bottom: 15px; display: flex; gap: 20px; }
     .filters label { font-weight: bold; display: flex; align-items: center; gap: 5px; }
@@ -74,6 +74,9 @@
           <option value="">Todos</option>
         </select>
       </label>
+      <label>Buscar por Producto:
+        <input type="text" id="product-search-filter" placeholder="Escriba para filtrar..." style="width: 200px;">
+      </label>
     </div>
     <p>La lista carga por defecto en modo "Mayorista". Usa los botones para recalcular según necesites.</p>
     <table id="acquisitions-table">
@@ -115,6 +118,7 @@
     const statusSpan = document.getElementById('status');
     const categorySelect = document.getElementById('category-filter');
     const supplierFilter = document.getElementById('supplier-filter');
+    const productSearchFilter = document.getElementById('product-search-filter');
 
     function processPlanData(plan) {
        plan.forEach(item => {
@@ -148,6 +152,7 @@
 
         categorySelect.addEventListener('change', renderTable);
         supplierFilter.addEventListener('change', renderTable);
+        productSearchFilter.addEventListener('input', renderTable);
 
         renderTable();
         statusSpan.textContent = 'Listo para editar.';
@@ -216,11 +221,13 @@
     function renderTable() {
       const selectedCategory = categorySelect.value;
       const selectedSupplier = supplierFilter.value;
+      const searchTerm = productSearchFilter.value.toLowerCase();
 
       const filteredItems = planData.filter(item => {
           const catOk = !selectedCategory || item.category === selectedCategory;
           const supplierOk = !selectedSupplier || item.supplier === selectedSupplier;
-          return catOk && supplierOk;
+          const searchOk = !searchTerm || item.productName.toLowerCase().includes(searchTerm);
+          return catOk && supplierOk && searchOk;
       });
 
       const neededItems = filteredItems.filter(item => parseFloat(item.suggestedQty) > 0);
