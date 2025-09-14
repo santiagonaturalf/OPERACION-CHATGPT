@@ -2329,7 +2329,8 @@ function importOrdersFromPastedText(textData) {
       Logger.log("Advertencia: No se encontró la hoja 'SKU'. No se pudo poblar la columna 'Producto Base'.");
     } else {
       const skuData = skuSheet.getRange("A2:B" + skuSheet.getLastRow()).getValues();
-      const skuMap = new Map(skuData.map(row => [row[0], row[1]]));
+      // Normalize keys by trimming whitespace to make matching more robust.
+      const skuMap = new Map(skuData.map(row => [(row[0] || '').toString().trim(), row[1]]));
 
       const headers = ordersSheet.getRange(1, 1, 1, ordersSheet.getLastColumn()).getValues()[0];
       let productNameColIndex = headers.indexOf("Item Name");
@@ -2346,7 +2347,8 @@ function importOrdersFromPastedText(textData) {
           const valuesForZ = [];
 
           for (let i = 0; i < importedData.length; i++) {
-            const productName = importedData[i][productNameColIndex];
+            // Normalize product name from order by trimming whitespace before lookup.
+            const productName = (importedData[i][productNameColIndex] || '').toString().trim();
             const baseProduct = skuMap.get(productName) || "";
             valuesForZ.push([baseProduct]);
           }
@@ -2360,6 +2362,9 @@ function importOrdersFromPastedText(textData) {
       }
     }
     // --- FIN LÓGICA ---
+
+    // Forzar la actualización de la hoja para que los valores de "Producto Base" estén disponibles para la siguiente sección.
+    SpreadsheetApp.flush();
 
     // --- INICIO: LÓGICA PARA AGREGAR STOCK REAL Y UNIDAD DE VENTA (v2) ---
     const inventarioSheet = mainSpreadsheet.getSheetByName("Inventario Actual");
@@ -2381,16 +2386,24 @@ function importOrdersFromPastedText(textData) {
           const productName = row[productCol];
           if (!productName) return; // Si no hay nombre de producto, saltar fila
 
-          // Convertir la fecha a un objeto Date válido, manejando el formato D/M/YYYY HH:MM:SS y D/M/YYYY
-          const dateParts = String(row[timestampCol]).split(/[\s/:]+/);
+          // Lógica de parseo de fecha robusta
           let timestamp;
-          if (dateParts.length >= 6) { // Formato con hora: "1/9/2025 12:40:26"
-             // new Date(año, mes-1, dia, hora, min, seg)
-             timestamp = new Date(dateParts[2], dateParts[1] - 1, dateParts[0], dateParts[3], dateParts[4], dateParts[5]);
-          } else if (dateParts.length === 3) { // Formato solo fecha: "1/9/2025"
-             timestamp = new Date(dateParts[2], dateParts[1] - 1, dateParts[0]);
+          const rawDate = row[timestampCol];
+
+          if (rawDate instanceof Date && !isNaN(rawDate)) {
+            // Si ya es un objeto Date válido, lo usamos directamente.
+            timestamp = rawDate;
           } else {
-             timestamp = new Date(row[timestampCol]); // Fallback para otros formatos
+            // Si es un string o número, intentamos convertirlo.
+            const dateParts = String(rawDate).split(/[\s/:]+/);
+            if (dateParts.length >= 6) { // Formato D/M/YYYY HH:MM:SS
+              timestamp = new Date(dateParts[2], dateParts[1] - 1, dateParts[0], dateParts[3], dateParts[4], dateParts[5]);
+            } else if (dateParts.length === 3) { // Formato D/M/YYYY
+              timestamp = new Date(dateParts[2], dateParts[1] - 1, dateParts[0]);
+            } else {
+              // Fallback para otros formatos que new Date() pueda entender (ej. ISO) o si es inválido.
+              timestamp = new Date(rawDate);
+            }
           }
 
           const normalizedProduct = normalizeKey(productName); // Normalizar la clave
