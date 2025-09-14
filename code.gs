@@ -13,6 +13,7 @@ function onOpen() {
   const operationsMenu = ui.createMenu('Gestión de Operaciones')
     .addItem('🚀 Abrir Dashboard de Operaciones', 'showDashboard')
     .addSeparator()
+    .addItem('📝 Generar Adquisiciones', 'showAcquisitionEditor')
     .addItem('🚚 Comanda Rutas', 'showComandaRutasDialog')
     .addItem('💬 Panel de Notificaciones (nuevo)', 'openNotificationPanel')
     .addSeparator()
