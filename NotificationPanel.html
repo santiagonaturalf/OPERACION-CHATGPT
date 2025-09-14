@@ -11,6 +11,10 @@
     .wrap { padding: 12px 12px 120px; }
     .toolbar { display:flex; gap:8px; align-items:center; margin:8px 0 12px; }
     .toolbar input[type="text"] { flex:1; padding:8px 10px; border:1px solid #ddd; border-radius:8px; }
+    .view-switcher { display: flex; gap: 8px; margin-bottom: 12px; border: 1px solid #ddd; border-radius: 99px; padding: 4px; background: #f0f0f0; width: fit-content; }
+    .view-switcher label { cursor: pointer; padding: 6px 14px; border-radius: 99px; font-size: 14px; }
+    .view-switcher input { display: none; }
+    .view-switcher input:checked + label { background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
     .accordion { border-radius:12px; overflow:hidden; border:1px solid #e8e8e8; background:#fff; }
     .accordion + .accordion { margin-top:10px; }
     summary { list-style:none; cursor:pointer; padding:12px; display:flex; align-items:center; gap:10px; }
@@ -42,6 +46,12 @@
   </header>
 
   <div class="wrap">
+    <div class="view-switcher">
+      <input type="radio" id="view-acq" name="view" value="acq" checked>
+      <label for="view-acq">Adquisiciones</label>
+      <input type="radio" id="view-fav" name="view" value="fav">
+      <label for="view-fav">Favoritos</label>
+    </div>
     <div class="toolbar">
       <input id="search" type="text" placeholder="Filtrar proveedor o producto..." />
       <span id="summaryCount" class="tag">0 seleccionados</span>
@@ -236,6 +246,17 @@
         .api_getPanelData();
     }
 
+    function loadFavorites(){
+      setStatus('Cargando Favoritos…');
+      google.script.run.withSuccessHandler(data=>{
+         STATE.providers = (data.providers||[]).map(p=>({
+          ...p, items: (p.items||[]).map(it=>({...it, qty: it.qty>0 ? it.qty:1, checked: false }))
+        }));
+        setStatus(''); render();
+      }).withFailureHandler(err=> setStatus('Error: '+err.message))
+        .api_getFavoritesData();
+    }
+
     function generateLink(){
       const provs = STATE.providers.map(p=>({...p, selected:p.items.filter(x=>x.checked)}))
                                    .filter(p=>p.selected.length>0);
@@ -271,7 +292,11 @@
       $('#btnGen').addEventListener('click', generateLink);
       $('#btnCopy').addEventListener('click', copyLink);
       $('#btnOpen').addEventListener('click', openLink);
-      load();
+
+      $('#view-acq').addEventListener('change', load);
+      $('#view-fav').addEventListener('change', loadFavorites);
+
+      load(); // Carga la vista por defecto (Adquisiciones)
     });
   </script>
 </body>

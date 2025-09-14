@@ -2780,6 +2780,80 @@ function api_getPanelData() {
 }
 
 /**
+ * Lee la hoja "SKU" y agrupa los productos por proveedor para la vista de "Favoritos".
+ *  providers: [{ name, phone, items:[{name, presentation, qty}] }]
+ * Donde phone sale de "Proveedores" (A: Nombre, B: Teléfono) con fallback a "SKU" (I: Proveedor, J: Teléfono).
+ */
+function api_getFavoritesData() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  const skuSheet = ss.getSheetByName('SKU');
+  if (!skuSheet || skuSheet.getLastRow() < 2) return { providers: [] };
+
+  const proveedoresSheet = ss.getSheetByName('Proveedores');
+
+  // Mapas de teléfonos (misma lógica que en api_getPanelData)
+  const phoneBySupplier = new Map();
+  if (proveedoresSheet && proveedoresSheet.getLastRow() > 1) {
+    proveedoresSheet.getRange(2, 1, proveedoresSheet.getLastRow() - 1, 2).getValues()
+      .forEach(([name, phone]) => {
+        if (name) phoneBySupplier.set(String(name).trim(), String(phone || '').trim());
+      });
+  }
+  // Fallback a la hoja SKU para teléfonos
+  // I: Proveedor (9), J: Teléfono (10)
+  const skuPhoneData = skuSheet.getRange(2, 9, skuSheet.getLastRow() - 1, 2).getValues();
+  skuPhoneData.forEach(([supplier, phone]) => {
+      const s = String(supplier || '').trim();
+      if (s && !phoneBySupplier.has(s) && phone) {
+        phoneBySupplier.set(s, String(phone).trim());
+      }
+    });
+
+
+  // Leemos SKU: B: Producto Base, C: Formato Compra, E: Unidad Compra, I: Proveedor
+  const data = skuSheet.getRange(2, 1, skuSheet.getLastRow() - 1, 9).getValues();
+  const bySupplier = new Map();
+
+  data.forEach(row => {
+    const productBase = String(row[1] || '').trim(); // Col B: Producto Base
+    const formatStr   = String(row[2] || '').trim(); // Col C: Formato Compra
+    const unit        = String(row[4] || 'un.').trim(); // Col E: Unidad Compra
+    const supplier    = String(row[8] || '').trim(); // Col I: Proveedor
+
+    if (!supplier || !productBase) return; // Un producto base y un proveedor son necesarios
+
+    if (!bySupplier.has(supplier)) {
+      bySupplier.set(supplier, {
+        name: supplier,
+        phone: phoneBySupplier.get(supplier) || '',
+        items: []
+      });
+    }
+
+    // Evitar duplicados de productos base para el mismo proveedor
+    const existingItems = bySupplier.get(supplier).items;
+    const isDuplicate = existingItems.some(item => item.name === productBase);
+
+    if (!isDuplicate) {
+        existingItems.push({
+          name: productBase,
+          presentation: formatStr,
+          qty: 1, // Default a 1, el usuario lo puede cambiar
+          currentInventory: 0, // No aplica en esta vista
+          salesNeed: 0, // No aplica en esta vista
+          unit: unit
+        });
+    }
+  });
+
+  // Ordenamos alfabéticamente y devolvemos
+  const providers = Array.from(bySupplier.values())
+    .sort((a,b)=> a.name.localeCompare(b.name));
+  return { providers };
+}
+
+/**
  * Crea/actualiza el teléfono del proveedor en la hoja "Proveedores".
  */
 function api_updateProviderPhone(supplierName, rawPhone) {
