@@ -8,7 +8,7 @@
     table { width: 100%; border-collapse: collapse; }
     th, td { padding: 8px 12px; border: 1px solid #ddd; text-align: left; }
     th { background-color: #f2f2f2; }
-    input[type="text"] { width: 95%; padding: 6px; border-radius: 4px; border: 1px solid #ccc; }
+    input[type="text"], select { width: 95%; padding: 6px; border-radius: 4px; border: 1px solid #ccc; }
     .footer { margin-top: 20px; text-align: right; }
     button { padding: 8px 15px; border: none; border-radius: 4px; cursor: pointer; }
     #save-btn { background-color: #4CAF50; color: white; }
@@ -17,15 +17,16 @@
   </style>
 </head>
 <body>
-  <h3>Añadir Teléfonos de Proveedores Nuevos</h3>
-  <p>Se encontraron los siguientes proveedores en la hoja 'SKU' que no existen en 'Proveedores'. Por favor, añade sus números de teléfono.</p>
+  <h3>Añadir Proveedores Nuevos</h3>
+  <p>Se encontraron proveedores en la hoja 'SKU' que no existen en 'Proveedores'. Asígnalos a un proveedor existente o crea uno nuevo con su teléfono.</p>
 
   <form id="new-suppliers-form">
     <table>
       <thead>
         <tr>
-          <th>Proveedor</th>
-          <th>Teléfono</th>
+          <th>Proveedor Nuevo</th>
+          <th>Asignar a Existente</th>
+          <th>Teléfono (si es nuevo)</th>
         </tr>
       </thead>
       <tbody id="suppliers-table-body">
@@ -36,52 +37,82 @@
 
   <div class="footer">
     <button id="cancel-btn">Cancelar</button>
-    <button id="save-btn">Guardar Proveedores</button>
+    <button id="save-btn">Guardar Cambios</button>
   </div>
 
   <script>
-    const suppliers = <?!= newSuppliers ?>;
+    const newSuppliers = <?!= newSuppliers ?>;
+    const existingSuppliers = <?!= existingSuppliers ?>;
     const tableBody = document.getElementById('suppliers-table-body');
     const saveBtn = document.getElementById('save-btn');
 
     function renderSuppliers() {
-      if (!suppliers || suppliers.length === 0) {
-        tableBody.innerHTML = '<tr><td colspan="2">No se encontraron nuevos proveedores.</td></tr>';
+      if (!newSuppliers || newSuppliers.length === 0) {
+        tableBody.innerHTML = '<tr><td colspan="3">No se encontraron nuevos proveedores.</td></tr>';
         saveBtn.disabled = true;
         return;
       }
 
       let html = '';
-      suppliers.forEach((supplier, index) => {
+      newSuppliers.forEach((supplier, index) => {
+        const selectId = `assign-${index}`;
+        const phoneId = `phone-${index}`;
+
+        let optionsHtml = '<option value="">Crear como nuevo</option>';
+        existingSuppliers.forEach(existing => {
+          optionsHtml += `<option value="${existing}">${existing}</option>`;
+        });
+
         html += `
-          <tr>
+          <tr data-new-supplier="${supplier}">
             <td>${supplier}</td>
-            <td><input type="text" id="phone-${index}" data-supplier-name="${supplier}" placeholder="Ej: +56912345678"></td>
+            <td><select id="${selectId}" class="assign-select">${optionsHtml}</select></td>
+            <td><input type="text" id="${phoneId}" class="phone-input" placeholder="Ej: +56912345678"></td>
           </tr>
         `;
       });
       tableBody.innerHTML = html;
     }
 
+    function handleAssignmentChange(event) {
+      if (event.target.classList.contains('assign-select')) {
+        const select = event.target;
+        const phoneInput = select.closest('tr').querySelector('.phone-input');
+        phoneInput.disabled = !!select.value;
+        if (phoneInput.disabled) {
+          phoneInput.value = '';
+        }
+      }
+    }
+
     function handleSave() {
       saveBtn.disabled = true;
       saveBtn.textContent = 'Guardando...';
 
-      const supplierData = {};
-      const inputs = document.querySelectorAll('input[type="text"]');
+      const saveData = {
+        newEntries: [],
+        assignments: []
+      };
 
-      inputs.forEach(input => {
-        const supplierName = input.dataset.supplierName;
-        const phone = input.value.trim();
-        if (supplierName && phone) {
-          supplierData[supplierName] = phone;
+      const rows = document.querySelectorAll('#suppliers-table-body tr');
+      rows.forEach(row => {
+        const newSupplierName = row.dataset.newSupplier;
+        if (!newSupplierName) return;
+
+        const selectedAssignment = row.querySelector('.assign-select').value;
+        const phone = row.querySelector('.phone-input').value.trim();
+
+        if (selectedAssignment) {
+          saveData.assignments.push({ from: newSupplierName, to: selectedAssignment });
+        } else if (phone) {
+          saveData.newEntries.push({ name: newSupplierName, phone: phone });
         }
       });
 
-      if (Object.keys(supplierData).length === 0) {
-        alert("Por favor, introduce al menos un número de teléfono.");
+      if (saveData.newEntries.length === 0 && saveData.assignments.length === 0) {
+        alert("No se ha realizado ninguna acción. Por favor, asigna un proveedor o introduce un número de teléfono.");
         saveBtn.disabled = false;
-        saveBtn.textContent = 'Guardar Proveedores';
+        saveBtn.textContent = 'Guardar Cambios';
         return;
       }
 
@@ -93,12 +124,13 @@
         .withFailureHandler(error => {
           alert('Error: ' + error.message);
           saveBtn.disabled = false;
-          saveBtn.textContent = 'Guardar Proveedores';
+          saveBtn.textContent = 'Guardar Cambios';
         })
-        .saveNewSuppliers(supplierData);
+        .saveOrAssignSuppliers(saveData);
     }
 
     window.onload = renderSuppliers;
+    tableBody.addEventListener('change', handleAssignmentChange);
     saveBtn.addEventListener('click', handleSave);
     document.getElementById('cancel-btn').addEventListener('click', () => {
       google.script.host.close();
