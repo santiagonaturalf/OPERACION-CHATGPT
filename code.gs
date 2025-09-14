@@ -2233,29 +2233,55 @@ function calculateBaseProductNeeds(ordersSheet, productToSkuMap) {
 }
 
 function createAcquisitionPlan(baseProductNeeds, baseProductPurchaseOptions, inventoryMap, mode = 'wholesale') {
-  const acquisitionPlan = []; // Devolver un array para soportar múltiples filas por producto
+  const acquisitionPlan = [];
   const latestSuppliers = getLatestSuppliersFromHistory();
 
-  // Ordenar productos alfabéticamente para una visualización consistente
-  const sortedBaseProducts = Object.keys(baseProductNeeds).sort((a, b) => a.localeCompare(b));
+  // If mode is 'all', we start with all products. Otherwise, only products with needs.
+  const productSource = (mode === 'all')
+    ? Object.keys(baseProductPurchaseOptions)
+    : Object.keys(baseProductNeeds);
+
+  const sortedBaseProducts = productSource.sort((a, b) => a.localeCompare(b));
 
   for (const baseProduct of sortedBaseProducts) {
     if (baseProductPurchaseOptions[baseProduct]) {
-      const needs = baseProductNeeds[baseProduct];
+      const needs = baseProductNeeds[baseProduct] || {};
       const purchaseInfo = baseProductPurchaseOptions[baseProduct];
-
-      // Ordenar formatos por tamaño descendente, es clave para ambas lógicas
       const purchaseOptions = purchaseInfo.options.sort((a, b) => b.size - a.size);
 
-      const needUnit = Object.keys(needs)[0];
-      const totalNeed = needs[needUnit];
-      const inventoryInfo = (inventoryMap && inventoryMap[baseProduct]) ? inventoryMap[baseProduct] : { quantity: 0, unit: needUnit };
+      // Determine the unit of measurement. Fallback logic is important.
+      const needUnit = Object.keys(needs)[0] || purchaseOptions[0]?.unit || 'Unidad';
+      const totalNeed = needs[needUnit] || 0;
+
+      const inventoryInfo = (inventoryMap && inventoryMap[baseProduct])
+        ? inventoryMap[baseProduct]
+        : { quantity: 0, unit: needUnit };
+
       let netNeed = Math.max(0, totalNeed - inventoryInfo.quantity);
 
-      if (netNeed <= 0) continue;
+      // The core logic change: ONLY skip if mode is NOT 'all' AND there's no need.
+      if (mode !== 'all' && netNeed <= 0) {
+        continue;
+      }
 
       const supplier = getBestSupplier(purchaseInfo, latestSuppliers[baseProduct]);
 
+      // If there is no net need, we add the item with 0 quantity and continue.
+      if (netNeed <= 0) {
+        acquisitionPlan.push(createAcquisitionItem(
+          baseProduct,
+          totalNeed,
+          needUnit,
+          supplier,
+          purchaseOptions,
+          purchaseOptions[0] || { name: 'Sin formato', size: 0, unit: needUnit }, // Default suggested format
+          0, // Suggested quantity is 0
+          inventoryInfo
+        ));
+        continue; // Go to the next product
+      }
+
+      // --- Existing logic for netNeed > 0 ---
       if (mode === 'just-in-time') {
         let remainingNeed = netNeed;
 

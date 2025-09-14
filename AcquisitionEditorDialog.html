@@ -98,6 +98,7 @@
       <span id="status">Cargando datos...</span>
       <button id="wholesale-btn" class="button">Calcular Compra Mayorista</button>
       <button id="just-in-time-btn" class="button">Calcular Compra Justa</button>
+      <button id="show-all-btn" class="button">Mostrar productos sin necesidad de compra</button>
       <button id="save-btn" class="button" disabled>Guardar y Notificar</button>
       <button id="cancel-btn" class="button" onclick="google.script.host.close()">Cancelar</button>
   </div>
@@ -110,6 +111,7 @@
     const saveBtn = document.getElementById('save-btn');
     const justInTimeBtn = document.getElementById('just-in-time-btn');
     const wholesaleBtn = document.getElementById('wholesale-btn');
+    const showAllBtn = document.getElementById('show-all-btn');
     const statusSpan = document.getElementById('status');
     const categorySelect = document.getElementById('category-filter');
     const supplierFilter = document.getElementById('supplier-filter');
@@ -215,14 +217,18 @@
       const selectedCategory = categorySelect.value;
       const selectedSupplier = supplierFilter.value;
 
-      const itemsToShow = planData.filter(item => {
+      const filteredItems = planData.filter(item => {
           const catOk = !selectedCategory || item.category === selectedCategory;
           const supplierOk = !selectedSupplier || item.supplier === selectedSupplier;
           return catOk && supplierOk;
       });
 
+      const neededItems = filteredItems.filter(item => parseFloat(item.suggestedQty) > 0);
+      const notNeededItems = filteredItems.filter(item => !(parseFloat(item.suggestedQty) > 0));
+
       tableBody.innerHTML = '';
-      itemsToShow.forEach(item => {
+
+      const renderItem = (item) => {
         const index = planData.indexOf(item);
         const row = document.createElement('tr');
         row.setAttribute('data-index', index);
@@ -249,9 +255,18 @@
           <td class="final-inventory"></td>
         `;
         tableBody.appendChild(row);
-        
         updateRowAppearance(row, item);
-      });
+      };
+
+      neededItems.forEach(renderItem);
+
+      if (notNeededItems.length > 0 && neededItems.length > 0) {
+        const separatorRow = document.createElement('tr');
+        separatorRow.innerHTML = `<th colspan="7" style="text-align: center; background-color: #e9ecef; color: #495057; font-size: 14px; padding: 10px;">Productos sin necesidad de compra inmediata</th>`;
+        tableBody.appendChild(separatorRow);
+      }
+
+      notNeededItems.forEach(renderItem);
     }
 
     function createOptions(optionsArray, selectedValue) {
@@ -304,17 +319,22 @@
       saveBtn.disabled = isLoading;
       justInTimeBtn.disabled = isLoading;
       wholesaleBtn.disabled = isLoading;
+      showAllBtn.disabled = isLoading;
       statusSpan.textContent = message;
+    }
+
+    function handleDataSuccess(newData) {
+      planData = processPlanData(newData.acquisitionPlan);
+      allSuppliers = newData.allSuppliers;
+      allCategories = newData.allCategories;
+      renderTable();
     }
 
     wholesaleBtn.addEventListener('click', function() {
       setLoadingState(true, 'Calculando compra mayorista...');
       google.script.run
         .withSuccessHandler(function(newData) {
-          planData = processPlanData(newData.acquisitionPlan);
-          allSuppliers = newData.allSuppliers;
-          allCategories = newData.allCategories;
-          renderTable();
+          handleDataSuccess(newData);
           setLoadingState(false, 'Cálculo mayorista completado.');
         })
         .withFailureHandler(handleError)
@@ -325,14 +345,22 @@
       setLoadingState(true, 'Calculando compra justa...');
       google.script.run
         .withSuccessHandler(function(newData) {
-          planData = processPlanData(newData.acquisitionPlan);
-          allSuppliers = newData.allSuppliers;
-          allCategories = newData.allCategories;
-          renderTable();
+          handleDataSuccess(newData);
           setLoadingState(false, 'Cálculo de compra justa completado.');
         })
         .withFailureHandler(handleError)
         .getAcquisitionDataForEditor('just-in-time');
+    });
+
+    showAllBtn.addEventListener('click', function() {
+      setLoadingState(true, 'Cargando todos los productos...');
+      google.script.run
+        .withSuccessHandler(function(newData) {
+          handleDataSuccess(newData);
+          setLoadingState(false, 'Se han cargado todos los productos.');
+        })
+        .withFailureHandler(handleError)
+        .getAcquisitionDataForEditor('all');
     });
   </script>
 </body>
