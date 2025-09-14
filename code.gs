@@ -1618,6 +1618,34 @@ function generatePackagingSheet(selectedCategories) {
   return printUrl;
 }
 
+/**
+ * Elimina todas las hojas de "Lista de Envasado" antiguas.
+ */
+function deletePackagingSheets() {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const allSheets = ss.getSheets();
+    let deletedCount = 0;
+
+    allSheets.forEach(sheet => {
+      const sheetName = sheet.getName();
+      if (sheetName.startsWith('Lista de Envasado -')) {
+        ss.deleteSheet(sheet);
+        deletedCount++;
+      }
+    });
+
+    if (deletedCount > 0) {
+      return { status: 'success', message: `Limpieza completada. Se eliminaron ${deletedCount} hoja(s) de envasado.` };
+    } else {
+      return { status: 'info', message: 'No se encontraron hojas de envasado antiguas para eliminar.' };
+    }
+  } catch (e) {
+    Logger.log(e);
+    return { status: 'error', message: `Ocurrió un error: ${e.toString()}` };
+  }
+}
+
 // --- FLUJO DE ADQUISICIONES ---
 
 /**

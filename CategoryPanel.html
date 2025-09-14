@@ -19,6 +19,7 @@
     button.btn { border:1px solid var(--line); background:#fff; padding:6px 10px; border-radius:8px; cursor:pointer; }
     button.primary { background:var(--accent); color:#fff; border-color:var(--accent); }
     button.ghost { background:#fff; color:#111827; }
+    button.btn-danger { background:#fef2f2; color:#dc2626; border-color:#fecaca; }
     button.btn:disabled { opacity:.6; cursor:not-allowed; }
 
     .wrap { padding: 10px 12px 80px; }
@@ -80,7 +81,8 @@
     <div id="accordion" class="accordion" aria-live="polite"></div>
   </div>
 
-  <footer class="actionbar">
+  <footer class="actionbar" style="justify-content: space-between;">
+    <button id="btnDeleteOld" class="btn btn-danger">🗑️ Borrar hojas antiguas</button>
     <button id="btnGen" class="btn primary">Generar lista</button>
   </footer>
 
@@ -285,6 +287,29 @@ $('#btnGen').addEventListener('click', ()=>{
     })
     .generatePackagingSheet(cats);
 });
+
+$('#btnDeleteOld').addEventListener('click', () => {
+  const confirmation = confirm("¿Estás seguro de que quieres borrar TODAS las hojas de 'Lista de Envasado' antiguas? Esta acción no se puede deshacer.");
+  if (!confirmation) {
+    return;
+  }
+
+  const btn = $('#btnDeleteOld');
+  btn.disabled = true;
+
+  google.script.run
+    .withSuccessHandler(response => {
+      btn.disabled = false;
+      // Usar el mensaje y el estado devueltos por el servidor
+      alert(response.message);
+    })
+    .withFailureHandler(err => {
+      btn.disabled = false;
+      alert('Error al intentar borrar las hojas: ' + (err?.message || err));
+    })
+    .deletePackagingSheets();
+});
+
 
 /* ---------- Carga inicial ---------- */
 function loadData(){
