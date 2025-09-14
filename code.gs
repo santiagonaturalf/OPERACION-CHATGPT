@@ -2323,6 +2323,44 @@ function importOrdersFromPastedText(textData) {
         ordersSheet.getRange(2, 1, reorderedData.length, reorderedData[0].length).setValues(reorderedData);
     }
 
+    // --- LÓGICA PARA AGREGAR PRODUCTO BASE ---
+    const skuSheet = mainSpreadsheet.getSheetByName("SKU");
+    if (!skuSheet) {
+      Logger.log("Advertencia: No se encontró la hoja 'SKU'. No se pudo poblar la columna 'Producto Base'.");
+    } else {
+      const skuData = skuSheet.getRange("A2:B" + skuSheet.getLastRow()).getValues();
+      const skuMap = new Map(skuData.map(row => [row[0], row[1]]));
+
+      const headers = ordersSheet.getRange(1, 1, 1, ordersSheet.getLastColumn()).getValues()[0];
+      let productNameColIndex = headers.indexOf("Item Name");
+      if (productNameColIndex === -1) {
+        productNameColIndex = headers.indexOf("Nombre Producto");
+      }
+      const productoBaseCol = 26; // Columna Z
+
+      if (productNameColIndex !== -1) {
+        ordersSheet.getRange(1, productoBaseCol).setValue("Producto Base").setFontWeight("bold");
+
+        if (reorderedData.length > 0) {
+          const importedData = ordersSheet.getRange(2, 1, reorderedData.length, ordersSheet.getLastColumn()).getValues();
+          const valuesForZ = [];
+
+          for (let i = 0; i < importedData.length; i++) {
+            const productName = importedData[i][productNameColIndex];
+            const baseProduct = skuMap.get(productName) || "";
+            valuesForZ.push([baseProduct]);
+          }
+
+          if (valuesForZ.length > 0) {
+            ordersSheet.getRange(2, productoBaseCol, valuesForZ.length, 1).setValues(valuesForZ);
+          }
+        }
+      } else {
+        Logger.log("Advertencia: No se encontró la columna 'Item Name' en la hoja 'Orders'. No se pudo poblar la columna 'Producto Base'.");
+      }
+    }
+    // --- FIN LÓGICA ---
+
     return `¡Éxito! Se han importado ${reorderedData.length} filas de pedidos.`;
 
   } catch (e) {
