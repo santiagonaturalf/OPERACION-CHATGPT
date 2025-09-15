@@ -98,7 +98,7 @@
 
       STATE.providers.forEach(prov=>{
         const hitProv = prov.name.toLowerCase().includes(q) ||
-                        prov.items.some(i=>i.name.toLowerCase().includes(q));
+                        prov.items.some(i=>i.name.toLowerCase().includes(q) || (i.category||'').toLowerCase().includes(q));
         if(!hitProv) return;
 
         const det = document.createElement('details'); det.className='accordion';
