@@ -63,7 +63,7 @@ function setupProjectSheets() {
 
   // Define all required sheets and their headers
   const sheetsToEnsure = [
-    { name: "Orders", headers: ["Order #", "Nombre y apellido", "Email", "Phone", "Shipping Address", "Shipping City", "Shipping Region", "Shipping Postcode", "Item Name", "Item SKU", "Item Quantity", "Item Price", "Line Total", "Tax Rate", "Tax Amount", "Importe total del pedido", "Payment Method", "Transaction ID", "Estado del pago", "Furgon"], index: 0 },
+    { name: "Orders", headers: ["Order #", "Nombre y apellido", "Email", "Phone", "Shipping Address", "Shipping City", "Shipping Region", "Shipping Postcode", "Item Name", "Item SKU", "Item Quantity", "Item Price", "Line Total", "Tax Rate", "Tax Amount", "Importe total del pedido", "Payment Method", "Transaction ID", "Estado", "Furgon"], index: 0 },
     { name: "SKU", headers: ["Nombre Producto", "Producto Base", "Formato Compra", "Cantidad Compra", "Unidad Compra", "Categoría", "Cantidad Venta", "Unidad Venta", "Proveedor", "Teléfono"], index: 1 },
     { name: "Proveedores", headers: ["Nombre", "Teléfono"], index: 2 },
     { name: "MovimientosBancarios", headers: ["MONTO", "DESCRIPCIÓN MOVIMIENTO", "FECHA", "SALDO", "N° DOCUMENTO", "SUCURSAL", "CARGO/ABONO", "Asignado a Pedido"], index: 3 },
@@ -983,9 +983,9 @@ function appendOrdersFromPastedText(textData) {
 
     // --- Determinar el estado "N Tiempo" ---
     const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
-    const statusColIndex = headers.indexOf("Estado del pago");
+    const statusColIndex = headers.indexOf("Estado");
     if (statusColIndex === -1) {
-        throw new Error("No se encontró la columna 'Estado del pago' en la hoja 'Orders'.");
+        throw new Error("No se encontró la columna 'Estado' en la hoja 'Orders'.");
     }
 
     const lastRow = sheet.getLastRow();
@@ -1054,9 +1054,9 @@ function processExtraTimeOrders() {
     if (!sheet) throw new Error("No se encontró la hoja 'Orders'.");
 
     const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
-    const statusColIndex = headers.indexOf("Estado del pago");
+    const statusColIndex = headers.indexOf("Estado");
     if (statusColIndex === -1) {
-        throw new Error("No se encontró la columna 'Estado del pago' en la hoja 'Orders'.");
+        throw new Error("No se encontró la columna 'Estado' en la hoja 'Orders'.");
     }
 
     const lastRow = sheet.getLastRow();
@@ -1676,10 +1676,10 @@ function getPackagingDataForExtraTime(statusToProcess) {
   const headers = ordersSheet.getRange(1, 1, 1, ordersSheet.getLastColumn()).getValues()[0];
   const nameColIdx = headers.indexOf("Item Name");
   const qtyColIdx = headers.indexOf("Item Quantity");
-  const statusColIdx = headers.indexOf("Estado del pago");
+  const statusColIdx = headers.indexOf("Estado");
 
   if (nameColIdx === -1 || qtyColIdx === -1 || statusColIdx === -1) {
-    throw new Error("Faltan columnas requeridas: 'Item Name', 'Item Quantity' o 'Estado del pago'.");
+    throw new Error("Faltan columnas requeridas: 'Item Name', 'Item Quantity' o 'Estado'.");
   }
 
   const productTotals = {};
