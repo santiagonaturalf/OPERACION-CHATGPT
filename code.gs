@@ -1025,10 +1025,21 @@ function appendOrdersFromPastedText(textData) {
       return { status: 'success', message: "No se encontraron filas de datos para agregar (se omitió el encabezado)." };
     }
 
+    const sheetWidth = sheet.getLastColumn();
+    // Pad rows to match sheet width
+    rows = rows.map(row => {
+      while (row.length < sheetWidth) {
+        row.push('');
+      }
+      return row.slice(0, sheetWidth); // Ensure it doesn't exceed sheet width
+    });
+
     const startRow = sheet.getLastRow() + 1;
 
     // Anexar las nuevas filas a la hoja.
-    sheet.getRange(startRow, 1, rows.length, rows[0].length).setValues(rows);
+    if (rows.length > 0) {
+      sheet.getRange(startRow, 1, rows.length, rows[0].length).setValues(rows);
+    }
 
     // Establecer el nuevo estado para las filas agregadas
     const statusRange = sheet.getRange(startRow, statusColIndex + 1, rows.length, 1);
