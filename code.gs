@@ -3130,6 +3130,25 @@ function api_reassignProductSupplier(productName, newSupplierName) {
     throw new Error(`No se encontró el producto '${productName}' en la lista.`);
   }
 
+  // --- NEW LOGIC TO UPDATE SKU SHEET ---
+  const skuSheet = ss.getSheetByName('SKU');
+  if (skuSheet && skuSheet.getLastRow() > 1) {
+    const skuHeaders = skuSheet.getRange(1, 1, 1, skuSheet.getLastColumn()).getValues()[0];
+    const skuProductBaseCol = skuHeaders.indexOf("Producto Base");
+    const skuSupplierCol = skuHeaders.indexOf("Proveedor");
+
+    if (skuProductBaseCol !== -1 && skuSupplierCol !== -1) {
+      const skuData = skuSheet.getRange(2, 1, skuSheet.getLastRow() - 1, skuSheet.getLastColumn()).getValues();
+      for (let i = 0; i < skuData.length; i++) {
+        if (String(skuData[i][skuProductBaseCol]).trim() === productName) {
+          const rowIdx = i + 2;
+          skuSheet.getRange(rowIdx, skuSupplierCol + 1).setValue(newSupplierName);
+        }
+      }
+    }
+  }
+  // --- END NEW LOGIC ---
+
   return { status: 'success', message: `Proveedor de '${productName}' actualizado a '${newSupplierName}'.` };
 }
 
