@@ -311,12 +311,17 @@
     saveBtn.addEventListener('click', function() {
       setLoadingState(true, 'Guardando cambios...');
 
-      const finalPlan = planData.map(item => ({
-          ...item,
-          quantity: item.suggestedQty,
-          selectedFormatString: item.selectedFormatString,
-          supplier: item.supplier
-      }));
+      const finalPlan = planData.map(item => {
+        const finalInventory = calculateFinalInventory(item, item.suggestedQty, item.selectedFormatString, item.currentInventory);
+
+        return {
+            ...item,
+            quantity: item.suggestedQty,
+            selectedFormatString: item.selectedFormatString,
+            supplier: item.supplier,
+            calculatedFinalInventory: finalInventory
+        };
+      });
 
       google.script.run
         .withSuccessHandler(handleSaveSuccess)

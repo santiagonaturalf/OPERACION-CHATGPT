@@ -2205,8 +2205,7 @@ function saveAcquisitions(finalPlan) {
 
     const currentInventory = inventoryMap[p.productName] || { quantity: 0, unit: p.unit };
 
-    const purchasedAmount = (parseFloat(p.quantity) || 0) * formatSize;
-    const finalInventory = currentInventory.quantity + purchasedAmount - (parseFloat(p.totalNeed) || 0);
+    const finalInventory = p.calculatedFinalInventory;
 
     const history = priceMap[p.productName] || [];
     const precioHoy = history.length > 0 ? history[0].price : "";
