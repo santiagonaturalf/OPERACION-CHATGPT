@@ -968,6 +968,7 @@ function showAppendOrdersDialog() {
 
 /**
  * Analiza texto separado por tabulaciones y lo anexa a la hoja "Orders".
+ * Asigna un estado secuencial "Aprobado y Agregado en [N] Tiempo".
  * Asume que la primera fila del texto pegado es un encabezado y la ignora.
  */
 function appendOrdersFromPastedText(textData) {
@@ -976,27 +977,138 @@ function appendOrdersFromPastedText(textData) {
       throw new Error("No se proporcionaron datos para importar.");
     }
 
-    const sheet = getSheet_('Orders');
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName('Orders');
+    if (!sheet) throw new Error("No se encontró la hoja 'Orders'.");
 
-    // Dividir el texto en filas y luego en celdas por tabulación.
+    // --- Determinar el estado "N Tiempo" ---
+    const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    const statusColIndex = headers.indexOf("Estado del pago");
+    if (statusColIndex === -1) {
+        throw new Error("No se encontró la columna 'Estado del pago' en la hoja 'Orders'.");
+    }
+
+    const lastRow = sheet.getLastRow();
+    let highestTiempo = 1; // Empezar en 1 para que el primero sea "2do"
+
+    if (lastRow > 1) {
+      const statusData = sheet.getRange(2, statusColIndex + 1, lastRow - 1, 1).getValues();
+      statusData.forEach(row => {
+        const status = row[0];
+        if (typeof status === 'string' && status.includes('Aprobado y Agregado en')) {
+          let tiempoNum = 0;
+          if (status.includes('Segundo') || status.includes('2do')) tiempoNum = 2;
+          else if (status.includes('Tercer') || status.includes('3er') || status.includes('3do')) tiempoNum = 3;
+          else {
+              const match = status.match(/(\d+)/);
+              if (match && match[1]) tiempoNum = parseInt(match[1], 10);
+          }
+          if (tiempoNum > highestTiempo) highestTiempo = tiempoNum;
+        }
+      });
+    }
+
+    const nextTiempoNum = highestTiempo < 2 ? 2 : highestTiempo + 1;
+    let tiempoSuffix;
+    switch (nextTiempoNum) {
+        case 2: tiempoSuffix = '2do'; break;
+        case 3: tiempoSuffix = '3er'; break;
+        default: tiempoSuffix = `${nextTiempoNum}to`;
+    }
+    const newStatus = `Aprobado y Agregado en ${tiempoSuffix} Tiempo`;
+
+    // --- Procesar y agregar filas ---
     let rows = textData.trim().split('\n').map(row => row.split('\t'));
-
-    // Se asume que el usuario incluye encabezados, por lo que se elimina la primera fila.
-    rows.shift();
+    rows.shift(); // Quitar encabezado
 
     if (rows.length === 0) {
       return { status: 'success', message: "No se encontraron filas de datos para agregar (se omitió el encabezado)." };
     }
 
+    const startRow = sheet.getLastRow() + 1;
+
     // Anexar las nuevas filas a la hoja.
-    sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, rows[0].length).setValues(rows);
+    sheet.getRange(startRow, 1, rows.length, rows[0].length).setValues(rows);
+
+    // Establecer el nuevo estado para las filas agregadas
+    const statusRange = sheet.getRange(startRow, statusColIndex + 1, rows.length, 1);
+    const statusValues = Array(rows.length).fill([newStatus]);
+    statusRange.setValues(statusValues);
 
     SpreadsheetApp.flush();
-    return { status: 'success', message: `Se agregaron ${rows.length} nuevos pedidos exitosamente.` };
+    return { status: 'success', message: `Se agregaron ${rows.length} nuevos pedidos con estado '${newStatus}'.` };
 
   } catch (e) {
     Logger.log(`Error en appendOrdersFromPastedText: ${e.stack}`);
     return { status: 'error', message: `Ocurrió un error: ${e.message}` };
+  }
+}
+
+/**
+ * Orquesta el proceso de generar la lista de envasado para los pedidos agregados en tiempos posteriores.
+ */
+function processExtraTimeOrders() {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName('Orders');
+    if (!sheet) throw new Error("No se encontró la hoja 'Orders'.");
+
+    const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    const statusColIndex = headers.indexOf("Estado del pago");
+    if (statusColIndex === -1) {
+        throw new Error("No se encontró la columna 'Estado del pago' en la hoja 'Orders'.");
+    }
+
+    const lastRow = sheet.getLastRow();
+    let highestTiempo = 0;
+    let statusToProcess = '';
+
+    if (lastRow > 1) {
+      const statusData = sheet.getRange(2, statusColIndex + 1, lastRow - 1, 1).getValues();
+      statusData.forEach(row => {
+        const status = row[0];
+        if (typeof status === 'string' && status.includes('Aprobado y Agregado en')) {
+          let tiempoNum = 0;
+          if (status.includes('Segundo') || status.includes('2do')) tiempoNum = 2;
+          else if (status.includes('Tercer') || status.includes('3er') || status.includes('3do')) tiempoNum = 3;
+          else {
+              const match = status.match(/(\d+)/);
+              if (match && match[1]) tiempoNum = parseInt(match[1], 10);
+          }
+          if (tiempoNum > highestTiempo) {
+              highestTiempo = tiempoNum;
+              statusToProcess = status;
+          }
+        }
+      });
+    }
+
+    if (highestTiempo === 0) {
+      SpreadsheetApp.getUi().alert('No se encontraron pedidos agregados en segundo tiempo o posterior para procesar.');
+      return;
+    }
+
+    let tiempoSuffix;
+    switch (highestTiempo) {
+        case 2: tiempoSuffix = '2do'; break;
+        case 3: tiempoSuffix = '3er'; break;
+        default: tiempoSuffix = `${highestTiempo}to`;
+    }
+
+    const categoriesData = getPackagingDataForExtraTime(statusToProcess);
+    const allCategories = Object.keys(categoriesData).sort();
+
+    if (allCategories.length === 0) {
+      SpreadsheetApp.getUi().alert(`No se encontraron productos para el estado '${statusToProcess}'.`);
+      return null;
+    }
+
+    const printUrl = generatePackagingSheetForExtraTime(allCategories, categoriesData, tiempoSuffix);
+    return printUrl;
+
+  } catch (e) {
+    Logger.log(`Error in processExtraTimeOrders: ${e.stack}`);
+    SpreadsheetApp.getUi().alert(`Ocurrió un error: ${e.message}`);
   }
 }
 
@@ -1549,6 +1661,132 @@ function getStockFromOrders() {
   });
 
   return stockMap;
+}
+
+function getPackagingDataForExtraTime(statusToProcess) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ordersSheet = ss.getSheetByName('Orders');
+  const skuSheet = ss.getSheetByName('SKU');
+  const skuMap = getSkuMap(skuSheet);
+
+  const lastRow = ordersSheet.getLastRow();
+  if (lastRow < 2) return {};
+  const allOrderData = ordersSheet.getRange(2, 1, lastRow - 1, ordersSheet.getLastColumn()).getValues();
+
+  const headers = ordersSheet.getRange(1, 1, 1, ordersSheet.getLastColumn()).getValues()[0];
+  const nameColIdx = headers.indexOf("Item Name");
+  const qtyColIdx = headers.indexOf("Item Quantity");
+  const statusColIdx = headers.indexOf("Estado del pago");
+
+  if (nameColIdx === -1 || qtyColIdx === -1 || statusColIdx === -1) {
+    throw new Error("Faltan columnas requeridas: 'Item Name', 'Item Quantity' o 'Estado del pago'.");
+  }
+
+  const productTotals = {};
+  allOrderData.forEach(row => {
+    const status = row[statusColIdx];
+    if (status === statusToProcess) {
+      const name = row[nameColIdx];
+      const qty = row[qtyColIdx];
+      if (name && qty) {
+        if (!productTotals[name]) { productTotals[name] = 0; }
+        productTotals[name] += parseInt(qty, 10) || 0;
+      }
+    }
+  });
+
+  const stockMap = getStockFromOrders();
+  const categorySummary = {};
+
+  for (const productName in productTotals) {
+    const category = skuMap[productName] ? skuMap[productName].category : 'Sin Categoría';
+    if (!categorySummary[category]) {
+      categorySummary[category] = { count: 0, products: {} };
+    }
+    categorySummary[category].count++;
+
+    const inventoryInfo = stockMap[productName];
+    let inventoryValue = 'No encontrado';
+    if (inventoryInfo) {
+      const stock = String(inventoryInfo.quantity);
+      const unit = String(inventoryInfo.unit);
+      if (stock || unit) {
+        inventoryValue = `${stock} ${unit}`.trim();
+      }
+    }
+
+    categorySummary[category].products[productName] = {
+      total: productTotals[productName],
+      stock: inventoryValue
+    };
+  }
+  return categorySummary;
+}
+
+function generatePackagingSheetForExtraTime(selectedCategories, data, tiempoSuffix) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const stockMap = getStockFromOrders();
+
+  const date = new Date();
+  const formattedDate = Utilities.formatDate(date, Session.getScriptTimeZone(), "yyyy-MM-dd");
+  const sheetName = `Lista de Envasado - ${formattedDate} - ${tiempoSuffix}`;
+
+  let sheet = ss.getSheetByName(sheetName);
+  if (sheet) {
+    sheet.clear();
+  } else {
+    sheet = ss.insertSheet(sheetName);
+  }
+
+  sheet.activate();
+
+  let currentRow = 1;
+
+  sheet.getRange(currentRow, 1, 1, 3).merge().setValue(`Lista de Envasado - ${tiempoSuffix}`).setFontWeight("bold").setFontSize(14).setHorizontalAlignment("center");
+  currentRow += 2;
+
+  const headers = ["Cantidad", "Inventario Actual", "Nombre Producto"];
+  const headerRange = sheet.getRange(currentRow, 1, 1, 3);
+  headerRange.setValues([headers]).setFontWeight("bold").setHorizontalAlignment("center").setVerticalAlignment("middle");
+  sheet.setFrozenRows(currentRow);
+  currentRow++;
+
+  selectedCategories.sort().forEach(category => {
+    sheet.getRange(currentRow, 1, 1, 3).merge().setValue(category.toUpperCase()).setFontWeight("bold").setHorizontalAlignment("center").setBackground("#f2f2f2");
+    currentRow++;
+
+    const products = data[category].products;
+    const sortedProductNames = Object.keys(products).sort();
+
+    const productRows = [];
+    sortedProductNames.forEach(productName => {
+      const inventoryInfo = stockMap[productName];
+      let inventoryValue = 'No encontrado';
+      if (inventoryInfo) {
+        const stock = String(inventoryInfo.quantity);
+        const unit = String(inventoryInfo.unit);
+        if (stock || unit) {
+          inventoryValue = `${stock} ${unit}`.trim();
+        }
+      }
+      productRows.push([products[productName].total, inventoryValue, productName]);
+    });
+
+    if (productRows.length > 0) {
+      const dataRange = sheet.getRange(currentRow, 1, productRows.length, 3);
+      dataRange.setValues(productRows);
+      dataRange.setHorizontalAlignment("center").setVerticalAlignment("middle");
+      currentRow += productRows.length;
+    }
+    currentRow++;
+  });
+
+  sheet.setColumnWidth(1, 100);
+  sheet.setColumnWidth(2, 150);
+  sheet.setColumnWidth(3, 350);
+
+  const printUrl = `https://docs.google.com/spreadsheets/d/${ss.getId()}/export?format=pdf&gid=${sheet.getSheetId()}&portrait=true&fitw=true&gridlines=true&printtitle=false`;
+  return printUrl;
 }
 
 function generatePackagingSheet(selectedCategories) {
