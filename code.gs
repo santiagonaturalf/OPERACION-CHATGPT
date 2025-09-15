@@ -2809,6 +2809,20 @@ function api_getPanelData() {
 
   if (!adquis || adquis.getLastRow() < 2) return { providers: [], allSuppliers: allSuppliers };
 
+  // --- (MODIFIED) Create a map for Product Base -> Category from SKU sheet ---
+  const categoryByProduct = new Map();
+  if (skuSheet && skuSheet.getLastRow() > 1) {
+    // B: Producto Base, F: Categoría
+    skuSheet.getRange(2, 2, skuSheet.getLastRow() - 1, 5).getValues()
+      .forEach(([baseProduct, , , , category]) => {
+        const bp = String(baseProduct || '').trim();
+        const cat = String(category || '').trim();
+        if (bp && cat) {
+          categoryByProduct.set(bp, cat);
+        }
+      });
+  }
+
   // Mapas de teléfonos
   const phoneBySupplier = new Map();
   if (proveedoresSheet && proveedoresSheet.getLastRow() > 1) {
@@ -2856,7 +2870,8 @@ function api_getPanelData() {
       qty: qty,
       currentInventory: invActual,
       salesNeed: salesNeed,
-      unit: invUnit
+      unit: invUnit,
+      category: categoryByProduct.get(productBase) || 'Sin Categoría' // --- (ADDED) ---
     });
   });
 
@@ -2901,7 +2916,7 @@ function api_getFavoritesData() {
     });
 
 
-  // Leemos SKU: B: Producto Base, C: Formato Compra, E: Unidad Compra, I: Proveedor
+  // Leemos SKU: B: Producto Base, C: Formato Compra, E: Unidad Compra, F: Categoría, I: Proveedor
   const data = skuSheet.getRange(2, 1, skuSheet.getLastRow() - 1, 9).getValues();
   const bySupplier = new Map();
 
@@ -2909,6 +2924,7 @@ function api_getFavoritesData() {
     const productBase = String(row[1] || '').trim(); // Col B: Producto Base
     const formatStr   = String(row[2] || '').trim(); // Col C: Formato Compra
     const unit        = String(row[4] || 'un.').trim(); // Col E: Unidad Compra
+    const category    = String(row[5] || 'Sin Categoría').trim(); // Col F: Categoría
     const supplier    = String(row[8] || '').trim(); // Col I: Proveedor
 
     if (!supplier || !productBase) return; // Un producto base y un proveedor son necesarios
@@ -2932,7 +2948,8 @@ function api_getFavoritesData() {
           qty: 1, // Default a 1, el usuario lo puede cambiar
           currentInventory: 0, // No aplica en esta vista
           salesNeed: 0, // No aplica en esta vista
-          unit: unit
+          unit: unit,
+          category: category // --- (ADDED) ---
         });
     }
   });
