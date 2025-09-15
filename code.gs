@@ -1047,6 +1047,118 @@ function appendOrdersFromPastedText(textData) {
     statusRange.setValues(statusValues);
 
     SpreadsheetApp.flush();
+
+    // --- INICIO: LÓGICA PARA AGREGAR PRODUCTO BASE, STOCK Y UNIDAD ---
+    try {
+      const skuSheet = ss.getSheetByName("SKU");
+      const inventarioSheet = ss.getSheetByName("Inventario Actual");
+      const ordersHeaders = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+
+      // 1. Mapeo de SKU
+      const skuMap = new Map();
+      if (skuSheet) {
+        const skuData = skuSheet.getRange("A2:B" + skuSheet.getLastRow()).getValues();
+        skuData.forEach(row => {
+          const productName = (row[0] || '').toString().trim();
+          const baseProduct = row[1];
+          if (productName) {
+            skuMap.set(productName, baseProduct);
+          }
+        });
+      }
+
+      // 2. Mapeo de Inventario (el más reciente por producto)
+      const latestInventory = new Map();
+      if (inventarioSheet) {
+        const inventarioData = inventarioSheet.getDataRange().getValues();
+        const inventarioHeaders = inventarioData.shift();
+        const productCol = inventarioHeaders.indexOf("Producto Base");
+        const stockCol = inventarioHeaders.indexOf("Stock Real");
+        const unitCol = inventarioHeaders.indexOf("Unidad Venta");
+        const timestampCol = inventarioHeaders.indexOf("Timestamp");
+
+        if (productCol !== -1 && stockCol !== -1 && unitCol !== -1 && timestampCol !== -1) {
+          inventarioData.forEach(row => {
+            const productName = row[productCol];
+            if (!productName) return;
+
+            let timestamp;
+            const rawDate = row[timestampCol];
+            if (rawDate instanceof Date && !isNaN(rawDate)) {
+              timestamp = rawDate;
+            } else {
+              timestamp = new Date(rawDate);
+            }
+
+            const normalizedProduct = normalizeKey(productName);
+            if (normalizedProduct && !isNaN(timestamp.getTime())) {
+              const existing = latestInventory.get(normalizedProduct);
+              if (!existing || timestamp > existing.timestamp) {
+                latestInventory.set(normalizedProduct, {
+                  stock: row[stockCol],
+                  unit: row[unitCol],
+                  timestamp: timestamp
+                });
+              }
+            }
+          });
+        }
+      }
+
+      // 3. Definir columnas de destino
+      const productoBaseCol = 26; // Columna Z
+      const stockRealCol = 27;    // Columna AA
+      const unidadVentaCol = 28;  // Columna AB
+
+      // Asegurarse de que los encabezados existan
+      sheet.getRange(1, productoBaseCol).setValue("Producto Base").setFontWeight("bold");
+      sheet.getRange(1, stockRealCol).setValue("Stock Real").setFontWeight("bold");
+      sheet.getRange(1, unidadVentaCol).setValue("Unidad Venta").setFontWeight("bold");
+
+      // 4. Leer las filas recién agregadas y preparar los datos para actualizar
+      let productNameColIndex = ordersHeaders.indexOf("Item Name");
+      if (productNameColIndex === -1) {
+        productNameColIndex = ordersHeaders.indexOf("Nombre Producto");
+      }
+
+      if (productNameColIndex !== -1 && rows.length > 0) {
+        const newOrdersData = sheet.getRange(startRow, 1, rows.length, sheet.getLastColumn()).getValues();
+        const valuesForZ = [];
+        const valuesForAA = [];
+        const valuesForAB = [];
+
+        newOrdersData.forEach(newRow => {
+          const productName = (newRow[productNameColIndex] || '').toString().trim();
+          const baseProduct = skuMap.get(productName) || "";
+          valuesForZ.push([baseProduct]);
+
+          const normalizedBaseProduct = normalizeKey(baseProduct);
+          const inventoryInfo = latestInventory.get(normalizedBaseProduct);
+
+          if (inventoryInfo) {
+            valuesForAA.push([inventoryInfo.stock]);
+            valuesForAB.push([inventoryInfo.unit]);
+          } else {
+            valuesForAA.push([""]);
+            valuesForAB.push([""]);
+          }
+        });
+
+        // 5. Escribir los nuevos datos en las columnas correspondientes
+        if (valuesForZ.length > 0) {
+          sheet.getRange(startRow, productoBaseCol, valuesForZ.length, 1).setValues(valuesForZ);
+          sheet.getRange(startRow, stockRealCol, valuesForAA.length, 1).setValues(valuesForAA);
+          sheet.getRange(startRow, unidadVentaCol, valuesForAB.length, 1).setValues(valuesForAB);
+        }
+      }
+       SpreadsheetApp.flush();
+    } catch (err) {
+        Logger.log(`Error al poblar datos adicionales en appendOrdersFromPastedText: ${err.stack}`);
+        // No relanzar el error para no interrumpir el flujo principal de agregado de pedidos.
+        // El error ya está logueado.
+    }
+    // --- FIN: LÓGICA PARA AGREGAR PRODUCTO BASE, STOCK Y UNIDAD ---
+
     return { status: 'success', message: `Se agregaron ${rows.length} nuevos pedidos con estado '${newStatus}'.` };
 
   } catch (e) {
