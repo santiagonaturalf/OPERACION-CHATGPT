@@ -62,6 +62,7 @@
     #save-btn { background-color: #1877f2; color: white; }
     #save-btn:disabled { background-color: #dcdfe3; color: #bec3c9; cursor: not-allowed; }
     #cancel-btn { background-color: #e4e6eb; color: #4b4f56; }
+    #clear-list-btn { background-color: #dc3545; color: white; }
     #just-in-time-btn, #wholesale-btn, #show-all-btn { background-color: #f0f2f5; color: #050505; border: 1px solid #bec3c9; }
     #status { margin-right: auto; /* Pushes status to the left */ color: #606770; }
   </style>
@@ -108,7 +109,11 @@
       <button id="wholesale-btn" class="button">Calcular Compra Mayorista</button>
       <button id="just-in-time-btn" class="button">Calcular Compra Justa</button>
       <button id="show-all-btn" class="button">Mostrar productos sin necesidad de compra</button>
+ feature/conditional-acquisition-quantity
+      <button id="clear-list-btn" class="button">Limpiar Lista de Adquisiciones</button>
+
       <button id="clear-list-btn" class="button" style="background-color: #dc3545; color: white;">Limpiar Lista de Adquisiciones</button>
+ main
       <button id="save-btn" class="button" disabled>Guardar y Notificar</button>
       <button id="cancel-btn" class="button" onclick="google.script.host.close()">Cancelar</button>
   </div>
@@ -408,6 +413,27 @@
         })
         .withFailureHandler(handleError)
         .getAcquisitionDataForEditor('all');
+    });
+
+    clearListBtn.addEventListener('click', function() {
+      if (confirm("¿Estás seguro de que deseas limpiar permanentemente la 'Lista de Adquisiciones'? Esta acción no se puede deshacer.")) {
+        setLoadingState(true, 'Limpiando lista...');
+        google.script.run
+          .withSuccessHandler(function(response) {
+            alert(response.message);
+            // Recargar los datos en el editor para que refleje la lista vacía
+            setLoadingState(true, 'Recargando datos...');
+            google.script.run
+              .withSuccessHandler(function(newData) {
+                handleDataSuccess(newData);
+                setLoadingState(false, 'La lista ha sido limpiada y los datos recargados.');
+              })
+              .withFailureHandler(handleError)
+              .getAcquisitionDataForEditor('wholesale'); // Recargar en modo por defecto
+          })
+          .withFailureHandler(handleError)
+          .clearAcquisitionsList();
+      }
     });
   </script>
 </body>
