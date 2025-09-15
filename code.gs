@@ -2801,10 +2801,13 @@ function api_getPanelData() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
 
   const adquis = ss.getSheetByName('Lista de Adquisiciones');
-  if (!adquis || adquis.getLastRow() < 2) return { providers: [] };
-
   const proveedoresSheet = ss.getSheetByName('Proveedores');
   const skuSheet = ss.getSheetByName('SKU');
+
+  // Mapa de todos los proveedores
+  const allSuppliers = api_getAllSuppliers();
+
+  if (!adquis || adquis.getLastRow() < 2) return { providers: [], allSuppliers: allSuppliers };
 
   // Mapas de teléfonos
   const phoneBySupplier = new Map();
@@ -2860,7 +2863,7 @@ function api_getPanelData() {
   // Ordenamos alfabéticamente y devolvemos
   const providers = Array.from(bySupplier.values())
     .sort((a,b)=> a.name.localeCompare(b.name));
-  return { providers };
+  return { providers, allSuppliers };
 }
 
 /**
@@ -2872,9 +2875,12 @@ function api_getFavoritesData() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
 
   const skuSheet = ss.getSheetByName('SKU');
-  if (!skuSheet || skuSheet.getLastRow() < 2) return { providers: [] };
-
   const proveedoresSheet = ss.getSheetByName('Proveedores');
+
+  // Mapa de todos los proveedores
+  const allSuppliers = api_getAllSuppliers();
+
+  if (!skuSheet || skuSheet.getLastRow() < 2) return { providers: [], allSuppliers: allSuppliers };
 
   // Mapas de teléfonos (misma lógica que en api_getPanelData)
   const phoneBySupplier = new Map();
@@ -2934,7 +2940,7 @@ function api_getFavoritesData() {
   // Ordenamos alfabéticamente y devolvemos
   const providers = Array.from(bySupplier.values())
     .sort((a,b)=> a.name.localeCompare(b.name));
-  return { providers };
+  return { providers, allSuppliers };
 }
 
 /**
@@ -3063,6 +3069,51 @@ function getAllCategories() {
   if (catCol === -1) return [];
   const values = sku.getRange(2, catCol + 1, last - 1, 1).getValues().flat();
   return [...new Set(values.filter(v => v && String(v).trim() !== ''))].sort();
+}
+
+function api_getAllSuppliers() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sh = ss.getSheetByName('Proveedores');
+  if (!sh || sh.getLastRow() < 2) return [];
+  const suppliers = sh.getRange(2, 1, sh.getLastRow() - 1, 1).getValues().flat().filter(String);
+  return [...new Set(suppliers)].sort();
+}
+
+function api_reassignProductSupplier(productName, newSupplierName) {
+  if (!productName || !newSupplierName) {
+    throw new Error('Faltan el nombre del producto o el nuevo proveedor.');
+  }
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sh = ss.getSheetByName('Lista de Adquisiciones');
+  if (!sh || sh.getLastRow() < 2) {
+    throw new Error("No se encontró la hoja 'Lista de Adquisiciones' o está vacía.");
+  }
+
+  const data = sh.getRange(2, 1, sh.getLastRow() - 1, sh.getLastColumn()).getValues();
+  const headers = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0];
+  const productCol = headers.indexOf("Producto Base");
+  const supplierCol = headers.indexOf("Proveedor");
+
+  if (productCol === -1 || supplierCol === -1) {
+    throw new Error("No se encontraron las columnas 'Producto Base' o 'Proveedor' en la hoja 'Lista de Adquisiciones'.");
+  }
+
+  let updated = false;
+  for (let i = 0; i < data.length; i++) {
+    if (String(data[i][productCol]).trim() === productName) {
+      const rowIdx = i + 2;
+      sh.getRange(rowIdx, supplierCol + 1).setValue(newSupplierName);
+      updated = true;
+      break; // Asumimos que el producto es único en la lista
+    }
+  }
+
+  if (!updated) {
+    throw new Error(`No se encontró el producto '${productName}' en la lista.`);
+  }
+
+  return { status: 'success', message: `Proveedor de '${productName}' actualizado a '${newSupplierName}'.` };
 }
 
 /**********************

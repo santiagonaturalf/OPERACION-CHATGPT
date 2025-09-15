@@ -28,8 +28,8 @@
     .btn.copy { background:#e6f4ea; color:#188038; }
     .btn.open { background:#fffbea; color:#8a6d00; }
     .items { padding:12px; border-top:1px dashed #eee; }
-    .item-header { display:grid; grid-template-columns: 24px 1fr 100px 100px 120px 100px; gap:8px; font-weight:bold; font-size:12px; color:#555; padding:4px 0; border-bottom: 1px solid #ddd; margin-bottom: 4px; }
-    .item { display:grid; grid-template-columns: 24px 1fr 100px 100px 120px 100px; gap:8px; align-items:center; padding:6px 0; }
+    .item-header { display:grid; grid-template-columns: 24px 1fr 100px 100px 120px 100px 120px; gap:8px; font-weight:bold; font-size:12px; color:#555; padding:4px 0; border-bottom: 1px solid #ddd; margin-bottom: 4px; }
+    .item { display:grid; grid-template-columns: 24px 1fr 100px 100px 120px 100px 120px; gap:8px; align-items:center; padding:6px 0; }
     .item + .item { border-top:1px dotted #f0f0f0; }
     .item label, .item .inv-data { font-size:13px; }
     .qty { display:flex; align-items:center; gap:6px; }
@@ -38,6 +38,7 @@
     .footer { position:sticky; bottom:0; background:#fff; border-top:1px solid #eee; padding:10px; display:flex; gap:8px; flex-wrap:wrap; }
     .muted { color:#666; font-size:12px; margin-left:auto; }
     .tag { background:#f1f3f4; padding:2px 8px; border-radius:999px; font-size:12px; }
+    .reassign-container { display: flex; flex-direction: column; gap: 4px; }
   </style>
 </head>
 <body>
@@ -79,7 +80,7 @@
       };
     }
 
-    let STATE = { providers: [], lastLink: null };
+    let STATE = { providers: [], lastLink: null, allSuppliers: [] };
 
     const $  = (s, r=document) => r.querySelector(s);
     const $$ = (s, r=document) => Array.from(r.querySelectorAll(s));
@@ -163,6 +164,7 @@
                 <div>Nec. Venta</div>
                 <div>Cant. a Comprar</div>
                 <div>Inv. al Finalizar</div>
+                <div>Acciones</div>
             `;
             items.append(header);
         }
@@ -214,7 +216,58 @@
 
           qty.append(qtyInp);
 
-          row.append(cb, label, invActualEl, salesNeedEl, qty, invFinalEl);
+          const actionsContainer = document.createElement('div');
+          actionsContainer.className = 'reassign-container';
+
+          const reassignBtn = document.createElement('button');
+          reassignBtn.className = 'btn';
+          reassignBtn.textContent = 'Reasignar';
+
+          const reassignForm = document.createElement('div');
+          reassignForm.style.display = 'none';
+
+          const supplierSelect = document.createElement('select');
+          STATE.allSuppliers.forEach(s => {
+            const opt = document.createElement('option');
+            opt.value = s;
+            opt.textContent = s;
+            supplierSelect.append(opt);
+          });
+
+          const saveReassignBtn = document.createElement('button');
+          saveReassignBtn.className = 'btn save';
+          saveReassignBtn.textContent = 'Guardar';
+          saveReassignBtn.style.marginTop = '4px';
+
+          reassignForm.append(supplierSelect, saveReassignBtn);
+          actionsContainer.append(reassignBtn, reassignForm);
+
+          reassignBtn.addEventListener('click', () => {
+            reassignForm.style.display = reassignForm.style.display === 'none' ? 'block' : 'none';
+          });
+
+          saveReassignBtn.addEventListener('click', () => {
+            const newSupplier = supplierSelect.value;
+            if (!newSupplier) {
+              setStatus('Por favor, selecciona un proveedor.');
+              return;
+            }
+            setStatus('Reasignando proveedor...');
+            saveReassignBtn.disabled = true;
+            google.script.run
+              .withSuccessHandler(() => {
+                setStatus('Proveedor reasignado. Actualizando...');
+                load(); // Recargar todo el panel
+              })
+              .withFailureHandler(err => {
+                setStatus(`Error: ${err.message}`);
+                saveReassignBtn.disabled = false;
+              })
+              .api_reassignProductSupplier(it.name, newSupplier);
+          });
+
+
+          row.append(cb, label, invActualEl, salesNeedEl, qty, invFinalEl, actionsContainer);
           items.append(row);
           updateFinalInventory(); // Calculate on initial render
         });
@@ -239,9 +292,11 @@
       setStatus('Cargando…');
       google.script.run.withSuccessHandler(data=>{
         STATE.providers = (data.providers||[]).map(p=>({
-          ...p, items: (p.items||[]).map(it=>({...it, qty: it.qty||1, checked: it.qty > 0 }))
+          ...p, items: (p.items||[]).map(it=>({...it, qty: it.qty||1, checked: false }))
         }));
-        setStatus(''); render();
+        STATE.allSuppliers = data.allSuppliers || [];
+        setStatus('');
+        render();
       }).withFailureHandler(err=> setStatus('Error: '+err.message))
         .api_getPanelData();
     }
@@ -252,7 +307,9 @@
          STATE.providers = (data.providers||[]).map(p=>({
           ...p, items: (p.items||[]).map(it=>({...it, qty: it.qty>0 ? it.qty:1, checked: false }))
         }));
-        setStatus(''); render();
+        STATE.allSuppliers = data.allSuppliers || [];
+        setStatus('');
+        render();
       }).withFailureHandler(err=> setStatus('Error: '+err.message))
         .api_getFavoritesData();
     }
