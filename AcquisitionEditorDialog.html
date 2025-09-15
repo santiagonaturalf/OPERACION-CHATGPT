@@ -62,7 +62,7 @@
     #save-btn { background-color: #1877f2; color: white; }
     #save-btn:disabled { background-color: #dcdfe3; color: #bec3c9; cursor: not-allowed; }
     #cancel-btn { background-color: #e4e6eb; color: #4b4f56; }
-    #clear-btn { background-color: #dc3545; color: white; }
+    #clear-list-btn { background-color: #dc3545; color: white; }
     #just-in-time-btn, #wholesale-btn, #show-all-btn { background-color: #f0f2f5; color: #050505; border: 1px solid #bec3c9; }
     #status { margin-right: auto; /* Pushes status to the left */ color: #606770; }
   </style>
@@ -109,7 +109,7 @@
       <button id="wholesale-btn" class="button">Calcular Compra Mayorista</button>
       <button id="just-in-time-btn" class="button">Calcular Compra Justa</button>
       <button id="show-all-btn" class="button">Mostrar productos sin necesidad de compra</button>
-      <button id="clear-btn" class="button">Limpiar Lista de Adquisiciones</button>
+      <button id="clear-list-btn" class="button">Limpiar Lista de Adquisiciones</button>
       <button id="save-btn" class="button" disabled>Guardar y Notificar</button>
       <button id="cancel-btn" class="button" onclick="google.script.host.close()">Cancelar</button>
   </div>
@@ -123,7 +123,7 @@
     const justInTimeBtn = document.getElementById('just-in-time-btn');
     const wholesaleBtn = document.getElementById('wholesale-btn');
     const showAllBtn = document.getElementById('show-all-btn');
-    const clearBtn = document.getElementById('clear-btn');
+    const clearListBtn = document.getElementById('clear-list-btn');
     const statusSpan = document.getElementById('status');
     const categorySelect = document.getElementById('category-filter');
     const supplierFilter = document.getElementById('supplier-filter');
@@ -349,6 +349,7 @@
       justInTimeBtn.disabled = isLoading;
       wholesaleBtn.disabled = isLoading;
       showAllBtn.disabled = isLoading;
+      if(clearListBtn) clearListBtn.disabled = isLoading;
       statusSpan.textContent = message;
     }
 
@@ -392,7 +393,7 @@
         .getAcquisitionDataForEditor('all');
     });
 
-    clearBtn.addEventListener('click', function() {
+    clearListBtn.addEventListener('click', function() {
       if (confirm("¿Estás seguro de que deseas limpiar permanentemente la 'Lista de Adquisiciones'? Esta acción no se puede deshacer.")) {
         setLoadingState(true, 'Limpiando lista...');
         google.script.run
