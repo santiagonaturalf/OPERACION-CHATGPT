@@ -207,7 +207,10 @@
         </div>
         <div>
             <p><strong>Gestión de Pedidos:</strong></p>
-            <button id="add-order-btn" class="action-button" style="background-color: #17a2b8;">➕ Agregar Pedido</button>
+            <div style="display: flex; gap: 10px; margin-bottom: 10px;">
+                <button id="add-order-btn" class="action-button" style="background-color: #17a2b8; margin-bottom: 0; flex: 1;">➕ Agregar Pedido</button>
+                <button id="process-extra-orders-btn" class="action-button" style="background-color: #28a745; margin-bottom: 0; flex: 1;">📦 Procesar Pedidos Agregados</button>
+            </div>
             <button id="delete-order-btn" class="action-button" style="background-color: #dc3545;">➖ Eliminar Pedido</button>
             <button id="view-deleted-btn" class="action-button" style="background-color: #0d6efd;">👀 Ver Eliminados o Reincorporar</button>
         </div>
@@ -389,6 +392,27 @@
     // --- LÓGICA PARA BOTONES DE GESTIÓN DE PEDIDOS ---
     document.getElementById('add-order-btn').addEventListener('click', () => {
         google.script.run.showAppendOrdersDialog();
+    });
+
+    document.getElementById('process-extra-orders-btn').addEventListener('click', () => {
+        setLoadingState(true, 'Buscando y procesando pedidos agregados...');
+        google.script.run
+            .withSuccessHandler(url => {
+                setLoadingState(false);
+                if (url) {
+                    // Abrir la URL del PDF en una nueva pestaña
+                    window.open(url, '_blank');
+                    setLoadingState(false, '¡Lista de envasado generada y abierta en una nueva pestaña!');
+                } else {
+                    // Si no hay URL, es porque no había nada que procesar o hubo un error manejado con alerta.
+                    setLoadingState(false);
+                }
+            })
+            .withFailureHandler(err => {
+                // Re-habilita los botones y muestra el error.
+                handleError(err);
+            })
+            .processExtraTimeOrders();
     });
 
     // --- NUEVA LÓGICA PARA ELIMINAR PEDIDOS (MODAL) ---
