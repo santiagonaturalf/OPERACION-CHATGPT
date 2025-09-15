@@ -1932,6 +1932,30 @@ function generateAcquisitionDRAFT() {
   SpreadsheetApp.getUi().alert("Borrador de 'Lista de Adquisiciones' generado con éxito.");
 }
 
+/**
+ * Clears all data from the "Lista de Adquisiciones" sheet, preserving the header row.
+ */
+function clearAcquisitionsList() {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName("Lista de Adquisiciones");
+    if (sheet) {
+      const lastRow = sheet.getLastRow();
+      if (lastRow > 1) {
+        sheet.getRange(2, 1, lastRow - 1, sheet.getLastColumn()).clearContent();
+      }
+      SpreadsheetApp.flush();
+      return { status: "success", message: "La lista de adquisiciones ha sido limpiada." };
+    } else {
+      // This case should ideally not happen if setupProjectSheets() runs correctly.
+      return { status: "error", message: "La hoja 'Lista de Adquisiciones' no fue encontrada." };
+    }
+  } catch (e) {
+    Logger.log(`Error en clearAcquisitionsList: ${e.stack}`);
+    return { status: "error", message: `Ocurrió un error al limpiar la lista: ${e.message}` };
+  }
+}
+
 function recalculateRowInventory(sheet, row) {
   const dataRange = sheet.getRange(`A${row}:H${row}`);
   const values = dataRange.getValues()[0];
