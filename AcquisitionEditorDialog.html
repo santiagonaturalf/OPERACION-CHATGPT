@@ -84,6 +84,10 @@
       <label>Buscar por Producto:
         <input type="text" id="product-search-filter" placeholder="Escriba para filtrar..." style="width: 200px;">
       </label>
+      <label style="display: flex; align-items: center; cursor: pointer;">
+        <input type="checkbox" id="review-filter" style="width: auto; margin-right: 5px;">
+        Mostrar solo para revisar
+      </label>
     </div>
     <p>La lista carga por defecto en modo "Mayorista". Usa los botones para recalcular según necesites.</p>
     <table id="acquisitions-table">
@@ -122,6 +126,7 @@
     let planData = [];
     let allSuppliers = [];
     let allCategories = [];
+    let showReviewHeader = false;
     const tableBody = document.querySelector("#acquisitions-table tbody");
     const saveBtn = document.getElementById('save-btn');
     const justInTimeBtn = document.getElementById('just-in-time-btn');
@@ -132,12 +137,14 @@
     const categorySelect = document.getElementById('category-filter');
     const supplierFilter = document.getElementById('supplier-filter');
     const productSearchFilter = document.getElementById('product-search-filter');
+    const reviewFilter = document.getElementById('review-filter');
 
     function processPlanData(plan) {
        plan.forEach(item => {
           item.allFormatObjects = [...item.availableFormats];
           item.allFormatStrings = item.availableFormats.map(f => `${f.name} (${f.size} ${f.unit})`);
           item.selectedFormatString = `${item.suggestedFormat.name} (${item.suggestedFormat.size} ${item.suggestedFormat.unit})`;
+          item.correctedInventory = null;
         });
         return plan;
     }
@@ -166,6 +173,7 @@
         categorySelect.addEventListener('change', renderTable);
         supplierFilter.addEventListener('change', renderTable);
         productSearchFilter.addEventListener('input', renderTable);
+        reviewFilter.addEventListener('change', renderTable);
 
         renderTable();
         statusSpan.textContent = 'Listo para editar.';
@@ -185,6 +193,10 @@
             }
             if (e.target.classList.contains('supplier-select')) {
               planData[index].supplier = e.target.value;
+            }
+            if (e.target.classList.contains('inventory-correction-input')) {
+              const value = parseFloat(e.target.value);
+              planData[index].correctedInventory = isNaN(value) ? null : value;
             }
 
             updateRowAppearance(row, planData[index]);
@@ -220,20 +232,17 @@
     }
 
     function updateRowAppearance(row, item) {
-      let inventoryForCalc = item.currentInventory;
-      const correctionInput = row.querySelector('.inventory-correction-input');
-      
-      if (correctionInput) {
-        inventoryForCalc = parseFloat(correctionInput.value) || 0;
-      }
-      
-      const quantity = row.querySelector('.quantity-input').value;
-      const formatString = row.querySelector('.format-select').value;
+      const inventoryForCalc = (typeof item.correctedInventory === 'number' && !isNaN(item.correctedInventory))
+        ? item.correctedInventory
+        : item.currentInventory;
+
+      const quantity = item.suggestedQty;
+      const formatString = item.selectedFormatString;
       const finalInventory = calculateFinalInventory(item, quantity, formatString, inventoryForCalc);
       const finalInventoryCell = row.querySelector('.final-inventory');
 
       row.classList.remove('low-stock-warning');
-      
+
       if (parseFloat(finalInventory) < 0) {
         finalInventoryCell.textContent = 'REVISAR INVENTARIO';
       } else {
@@ -248,18 +257,45 @@
       const selectedCategory = categorySelect.value;
       const selectedSupplier = supplierFilter.value;
       const searchTerm = productSearchFilter.value.toLowerCase();
+      const showOnlyReview = reviewFilter.checked;
+
+      tableBody.innerHTML = '';
+
+      if (showReviewHeader) {
+        const anyItemNeedsReview = planData.some(item => {
+            const inventoryForCalc = (typeof item.correctedInventory === 'number' && !isNaN(item.correctedInventory))
+              ? item.correctedInventory
+              : item.currentInventory;
+            const finalInventory = calculateFinalInventory(item, item.suggestedQty, item.selectedFormatString, inventoryForCalc);
+            return parseFloat(finalInventory) < 0;
+        });
+
+        if (anyItemNeedsReview) {
+            const separatorRow = document.createElement('tr');
+            separatorRow.classList.add('review-alert-header');
+            separatorRow.innerHTML = `<th colspan="7" style="text-align: center; background-color: #f8d7da; color: #721c24; font-size: 16px; padding: 12px; border-top: 2px solid #721c24; border-bottom: 2px solid #721c24;">🚨 ¡Atención! Se requiere revisar el inventario de las siguientes filas. 🚨</th>`;
+            tableBody.appendChild(separatorRow);
+        }
+      }
 
       const filteredItems = planData.filter(item => {
           const catOk = !selectedCategory || item.category === selectedCategory;
           const supplierOk = !selectedSupplier || item.supplier === selectedSupplier;
           const searchOk = !searchTerm || item.productName.toLowerCase().includes(searchTerm);
-          return catOk && supplierOk && searchOk;
+          if (!(catOk && supplierOk && searchOk)) return false;
+
+          if (showOnlyReview) {
+            const inventoryForCalc = (typeof item.correctedInventory === 'number' && !isNaN(item.correctedInventory))
+              ? item.correctedInventory
+              : item.currentInventory;
+            const finalInventory = calculateFinalInventory(item, item.suggestedQty, item.selectedFormatString, inventoryForCalc);
+            return parseFloat(finalInventory) < 0;
+          }
+          return true;
       });
 
       const neededItems = filteredItems.filter(item => parseFloat(item.suggestedQty) > 0);
       const notNeededItems = filteredItems.filter(item => !(parseFloat(item.suggestedQty) > 0));
-
-      tableBody.innerHTML = '';
 
       const renderItem = (item) => {
         const index = planData.indexOf(item);
@@ -272,7 +308,7 @@
           inventoryCellHtml = `
             <td class="negative-stock-cell">
               <span>${item.currentInventory} ${item.currentInventoryUnit}</span>
-              <input type="number" class="inventory-correction-input" placeholder="Corregir" value="0" step="any">
+              <input type="number" class="inventory-correction-input" placeholder="Corregir" value="${(typeof item.correctedInventory === 'number' && !isNaN(item.correctedInventory)) ? item.correctedInventory : ''}" step="any">
             </td>`;
         } else {
           inventoryCellHtml = `<td>${item.currentInventory} ${item.currentInventoryUnit}</td>`;
@@ -309,6 +345,8 @@
     }
 
     saveBtn.addEventListener('click', function() {
+      showReviewHeader = true;
+      renderTable();
       setLoadingState(true, 'Guardando cambios...');
 
       const finalPlan = planData.map(item => ({
