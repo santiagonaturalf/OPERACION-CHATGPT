@@ -480,7 +480,8 @@ function indexer(headers) {
     comuna:    idxOf('comuna','shipping region','ciudad'),
     estado:    idxOf('estado','estado del pago'),
     furgon:    idxOf('furgón','furgon','van','furgón asignado'),
-    cantidad:  idxOf('item quantity', 'cantidad')
+    cantidad:  idxOf('item quantity', 'cantidad'),
+    producto:  idxOf('item name', 'nombre producto', 'producto')
   };
 }
 
@@ -1797,12 +1798,14 @@ function getPackagingDataForExtraTime(statusToProcess) {
   const allOrderData = ordersSheet.getRange(2, 1, lastRow - 1, ordersSheet.getLastColumn()).getValues();
 
   const headers = ordersSheet.getRange(1, 1, 1, ordersSheet.getLastColumn()).getValues()[0];
-  const nameColIdx = headers.indexOf("Item Name");
-  const qtyColIdx = headers.indexOf("Item Quantity");
-  const statusColIdx = headers.indexOf("Estado");
+  const idx = indexer(headers);
+
+  const nameColIdx = idx.producto;
+  const qtyColIdx = idx.cantidad;
+  const statusColIdx = idx.estado;
 
   if (nameColIdx === -1 || qtyColIdx === -1 || statusColIdx === -1) {
-    throw new Error("Faltan columnas requeridas: 'Item Name', 'Item Quantity' o 'Estado'.");
+    throw new Error("Faltan columnas requeridas. Asegúrate de que la hoja 'Orders' tenga columnas con nombres como 'Item Name' (o 'Nombre Producto'), 'Item Quantity' (o 'Cantidad') y 'Estado'.");
   }
 
   const productTotals = {};
