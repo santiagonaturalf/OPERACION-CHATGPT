@@ -68,7 +68,7 @@ function setupProjectSheets() {
     { name: "Proveedores", headers: ["Nombre", "Teléfono"], index: 2 },
     { name: "MovimientosBancarios", headers: ["MONTO", "DESCRIPCIÓN MOVIMIENTO", "FECHA", "SALDO", "N° DOCUMENTO", "SUCURSAL", "CARGO/ABONO", "Asignado a Pedido"], index: 3 },
     { name: "AsignacionesHistoricas", headers: ["ID_Pago", "ID_Pedido", "Nombre_Banco", "Nombre_Pedido", "Monto", "Fecha_Asignacion"], index: 4 },
-    { name: "Lista de Envasado", headers: ["Cantidad", "Inventario", "Nombre Producto"], index: 5 },
+    { name: "Lista de Envasado", headers: ["Inventario Actual", "Cantidad", "Nombre Producto"], index: 5 },
     { name: "Lista de Adquisiciones", headers: ["Producto Base", "Cantidad a Comprar", "Formato de Compra", "Inventario Actual", "Unidad Inventario Actual", "Necesidad de Venta", "Unidad Venta", "Inventario al Finalizar", "Unidad Inventario Final", "Precio Adq. Anterior", "Precio Adq. HOY", "Proveedor"], index: 6 },
     { name: "ClientBankData", headers: ["PaymentIdentifier", "CustomerRUT", "CustomerName", "LastSeen"], index: 7 }
   ];
@@ -1847,7 +1847,7 @@ function generateExtractionSheet(orderIdsToExtract, customerName, extractedRows)
   sheet.getRange(currentRow, 1, 1, 3).merge().setValue(title).setFontWeight("bold").setFontSize(14).setHorizontalAlignment("center");
   currentRow += 2;
 
-  const sheetHeaders = ["Cantidad", "Inventario Actual", "Nombre Producto"];
+  const sheetHeaders = ["Inventario Actual", "Cantidad", "Nombre Producto"];
   sheet.getRange(currentRow, 1, 1, 3).setValues([sheetHeaders]).setFontWeight("bold").setHorizontalAlignment("center").setVerticalAlignment("middle");
   sheet.setFrozenRows(currentRow);
   currentRow++;
@@ -1861,7 +1861,7 @@ function generateExtractionSheet(orderIdsToExtract, customerName, extractedRows)
     const sortedProductNames = Object.keys(products).sort();
     const productRows = [];
     sortedProductNames.forEach(productName => {
-      productRows.push([products[productName].total, products[productName].stock, productName]);
+      productRows.push([products[productName].stock, products[productName].total, productName]);
     });
 
     if (productRows.length > 0) {
@@ -1949,7 +1949,7 @@ function generatePostExtractionPackingList(excludedOrderIds) {
   sheet.getRange(currentRow, 1, 1, 3).merge().setValue("Lista de Envasado (Post-Extracción)").setFontWeight("bold").setFontSize(14).setHorizontalAlignment("center");
   currentRow += 2;
 
-  const sheetHeaders = ["Cantidad", "Inventario Actual", "Nombre Producto"];
+  const sheetHeaders = ["Inventario Actual", "Cantidad", "Nombre Producto"];
   sheet.getRange(currentRow, 1, 1, 3).setValues([sheetHeaders]).setFontWeight("bold").setHorizontalAlignment("center").setVerticalAlignment("middle");
   sheet.setFrozenRows(currentRow);
   currentRow++;
@@ -1963,7 +1963,7 @@ function generatePostExtractionPackingList(excludedOrderIds) {
     const sortedProductNames = Object.keys(products).sort();
     const productRows = [];
     sortedProductNames.forEach(productName => {
-      productRows.push([products[productName].total, products[productName].stock, productName]);
+      productRows.push([products[productName].stock, products[productName].total, productName]);
     });
 
     if (productRows.length > 0) {
@@ -2419,7 +2419,7 @@ function generatePackagingSheetForExtraTime(selectedCategories, data, tiempoSuff
   sheet.getRange(currentRow, 1, 1, 3).merge().setValue(`Lista de Envasado - ${tiempoSuffix}`).setFontWeight("bold").setFontSize(14).setHorizontalAlignment("center");
   currentRow += 2;
 
-  const headers = ["Cantidad", "Inventario Actual", "Nombre Producto"];
+  const headers = ["Inventario Actual", "Cantidad", "Nombre Producto"];
   const headerRange = sheet.getRange(currentRow, 1, 1, 3);
   headerRange.setValues([headers]).setFontWeight("bold").setHorizontalAlignment("center").setVerticalAlignment("middle");
   sheet.setFrozenRows(currentRow);
@@ -2435,7 +2435,7 @@ function generatePackagingSheetForExtraTime(selectedCategories, data, tiempoSuff
     const productRows = [];
     sortedProductNames.forEach(productName => {
       const inventoryValue = products[productName].stock || 'No encontrado';
-      productRows.push([products[productName].total, inventoryValue, productName]);
+      productRows.push([inventoryValue, products[productName].total, productName]);
     });
 
     if (productRows.length > 0) {
@@ -2483,7 +2483,7 @@ function generatePackagingSheet(selectedCategories) {
   currentRow += 2; // Espacio después del título
 
   // Encabezados de la tabla
-  const headers = ["Cantidad", "Inventario Actual", "Nombre Producto"];
+  const headers = ["Inventario Actual", "Cantidad", "Nombre Producto"];
   const headerRange = sheet.getRange(currentRow, 1, 1, 3);
   headerRange.setValues([headers]).setFontWeight("bold").setHorizontalAlignment("center").setVerticalAlignment("middle");
   sheet.setFrozenRows(currentRow);
@@ -2512,7 +2512,7 @@ function generatePackagingSheet(selectedCategories) {
         }
       }
 
-      productRows.push([products[productName].total, inventoryValue, productName]);
+      productRows.push([inventoryValue, products[productName].total, productName]);
     });
 
     if (productRows.length > 0) {
