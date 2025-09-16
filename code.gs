@@ -693,6 +693,35 @@ function cleanupRouteSheets() {
   }
 }
 
+/**
+ * Elimina todas las hojas de "Lista de Envasado" y "Extraccion" de sesiones anteriores.
+ */
+function cleanPreviousSession() {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const allSheets = ss.getSheets();
+    let deletedCount = 0;
+
+    allSheets.forEach(sheet => {
+      const sheetName = sheet.getName();
+      if (sheetName.startsWith('Lista de Envasado') || sheetName.startsWith('Extraccion')) {
+        ss.deleteSheet(sheet);
+        deletedCount++;
+      }
+    });
+
+    if (deletedCount > 0) {
+      return `Limpieza completada. Se eliminaron ${deletedCount} hoja(s) de la sesión anterior.`;
+    } else {
+      return 'No se encontraron hojas de "Lista de Envasado" o "Extraccion" para eliminar.';
+    }
+  } catch (e) {
+    Logger.log(`Error en cleanPreviousSession: ${e.stack}`);
+    // Re-throw the error to be caught by withFailureHandler on the client-side
+    throw new Error(`Ocurrió un error al limpiar las hojas: ${e.message}`);
+  }
+}
+
 
 // --- MÓDULO DE FINANZAS ---
 
