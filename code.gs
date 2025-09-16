@@ -1510,6 +1510,14 @@ function getOrdersForDeletion() {
 }
 
 /**
+ * Devuelve el ID de la hoja de cálculo activa.
+ * @returns {string} El ID de la hoja de cálculo.
+ */
+function getActiveSpreadsheetId() {
+  return SpreadsheetApp.getActiveSpreadsheet().getId();
+}
+
+/**
  * Obtiene los datos de los pedidos MARCADOS COMO ELIMINADOS para el panel de reincorporación.
  * Solo incluye artículos cuya cantidad comienza con 'E'.
  */
@@ -1570,6 +1578,46 @@ function showDashboard() {
     .setWidth(1200)
     .setHeight(800);
   SpreadsheetApp.getUi().showModalDialog(html, 'Dashboard Operaciones SNF');
+}
+
+/**
+ * Muestra el diálogo para ver las listas de envasado generadas.
+ */
+function showEnvasadoViewerDialog() {
+  const html = HtmlService.createHtmlOutputFromFile('EnvasadoViewerDialog')
+    .setWidth(600)
+    .setHeight(500);
+  SpreadsheetApp.getUi().showModalDialog(html, 'Ver Listas de Envasado');
+}
+
+/**
+ * Obtiene una lista de todas las hojas de "Lista de Envasado".
+ * @returns {Array<{name: string, id: string}>} Un array de objetos, cada uno con el nombre y el ID de la hoja.
+ */
+function getEnvasadoSheets() {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const allSheets = ss.getSheets();
+    const envasadoSheets = [];
+
+    allSheets.forEach(sheet => {
+      const sheetName = sheet.getName();
+      if (sheetName.startsWith('Lista de Envasado')) {
+        envasadoSheets.push({
+          name: sheetName,
+          id: sheet.getSheetId()
+        });
+      }
+    });
+
+    // Ordenar las hojas por nombre descendente (más reciente primero)
+    envasadoSheets.sort((a, b) => b.name.localeCompare(a.name));
+
+    return { ok: true, sheets: envasadoSheets };
+  } catch (e) {
+    Logger.log(`Error en getEnvasadoSheets: ${e.stack}`);
+    return { ok: false, error: e.toString() };
+  }
 }
 
 /**
@@ -1661,9 +1709,31 @@ function extractOrdersFromPackingList(orderIdsToExtract) {
       throw new Error("No se encontraron los productos para los pedidos seleccionados.");
     }
 
+    // --- NEW LOGIC FOR CUMULATIVE EXTRACTION ---
+    const today = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd");
+    const propKey = `extracted_orders_${today}`;
+    const properties = PropertiesService.getUserProperties();
+
+    let previouslyExtractedIds = [];
+    const storedIds = properties.getProperty(propKey);
+    if (storedIds) {
+      try {
+        previouslyExtractedIds = JSON.parse(storedIds);
+      } catch (e) {
+        Logger.log(`Error parsing stored IDs for key ${propKey}: ${e.toString()}`);
+        previouslyExtractedIds = [];
+      }
+    }
+
+    // Combine and remove duplicates
+    const allExcludedOrderIds = [...new Set([...previouslyExtractedIds, ...orderIdsToExtract])];
+
+    properties.setProperty(propKey, JSON.stringify(allExcludedOrderIds));
+    // --- END NEW LOGIC ---
+
     const newSheetName = generateExtractionSheet(orderIdsToExtract, customerName, extractedRows);
 
-    generatePostExtractionPackingList(orderIdsToExtract);
+    generatePostExtractionPackingList(allExcludedOrderIds);
 
     return {
       status: 'success',
