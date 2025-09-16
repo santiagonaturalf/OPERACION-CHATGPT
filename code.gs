@@ -1661,30 +1661,125 @@ function extractOrdersFromPackingList(orderIdsToExtract) {
       throw new Error("No se encontraron los productos para los pedidos seleccionados.");
     }
 
-    const date = new Date();
-    const formattedDate = Utilities.formatDate(date, Session.getScriptTimeZone(), "yyyy-MM-dd");
-    const sheetName = `Lista de Envasado - Extraccion - ${customerName} (Pedidos ${orderIdsToExtract.join(', ')}) - ${formattedDate}`;
-
-    let extractionSheet = ss.getSheetByName(sheetName);
-    if (extractionSheet) {
-      extractionSheet.clear();
-    } else {
-      extractionSheet = ss.insertSheet(sheetName);
-    }
-    extractionSheet.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight("bold");
-    extractionSheet.getRange(2, 1, extractedRows.length, extractedRows[0].length).setValues(extractedRows);
-    extractionSheet.autoResizeColumns(1, headers.length);
+    const newSheetName = generateExtractionSheet(orderIdsToExtract, customerName, extractedRows);
 
     generatePostExtractionPackingList(orderIdsToExtract);
 
     return {
       status: 'success',
-      message: `Extracción completada. Se creó la hoja "${sheetName}" y la nueva lista de envasado post-extracción.`
+      message: `Extracción completada. Se creó la hoja "${newSheetName}" y la nueva lista de envasado post-extracción.`
     };
   } catch (e) {
     Logger.log(`Error en extractOrdersFromPackingList: ${e.stack}`);
     throw new Error(`Ocurrió un error en la extracción: ${e.message}`);
   }
+}
+
+/**
+ * Generates a formatted extraction sheet, similar to a packing list.
+ * @param {string[]} orderIdsToExtract The IDs of the orders being extracted.
+ * @param {string} customerName The name of the customer for the orders.
+ * @param {Array<Object>} extractedRows The raw row data from the 'Orders' sheet for the extracted orders.
+ * @returns {string} The name of the newly created sheet.
+ */
+function generateExtractionSheet(orderIdsToExtract, customerName, extractedRows) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const skuSheet = ss.getSheetByName('SKU');
+  const ordersSheet = ss.getSheetByName('Orders'); // To get headers
+
+  // 1. Process data
+  const skuMap = getSkuMap(skuSheet);
+  const headers = ordersSheet.getRange(1, 1, 1, ordersSheet.getLastColumn()).getValues()[0];
+  const idx = indexer(headers);
+
+  const productTotals = {};
+  extractedRows.forEach(row => {
+    const name = row[idx.producto];
+    const qty = row[idx.cantidad];
+    if (name && qty) {
+      if (!productTotals[name]) { productTotals[name] = 0; }
+      productTotals[name] += parseInt(qty, 10) || 0;
+    }
+  });
+
+  const stockMap = getStockFromOrders();
+  const categorySummary = {};
+  for (const productName in productTotals) {
+    const category = skuMap[productName] ? skuMap[productName].category : 'Sin Categoría';
+    if (!categorySummary[category]) {
+      categorySummary[category] = { count: 0, products: {} };
+    }
+    categorySummary[category].count++;
+    const inventoryInfo = stockMap[productName];
+    let inventoryValue = 'No encontrado';
+    if (inventoryInfo) {
+      const stock = String(inventoryInfo.quantity);
+      const unit = String(inventoryInfo.unit);
+      if (stock || unit) {
+        inventoryValue = `${stock} ${unit}`.trim();
+      }
+    }
+    categorySummary[category].products[productName] = {
+      total: productTotals[productName],
+      stock: inventoryValue
+    };
+  }
+
+  // 2. Create sheet and title
+  const date = new Date();
+  const formattedDate = Utilities.formatDate(date, Session.getScriptTimeZone(), "yyyy-MM-dd");
+
+  let safeCustomerName = customerName.replace(/[\[\]\*?:\/\\#]/g, '');
+  if (safeCustomerName.length > 50) safeCustomerName = safeCustomerName.substring(0, 50);
+
+  const sheetName = `Extraccion - ${safeCustomerName} - ${formattedDate}`;
+
+  let sheet = ss.getSheetByName(sheetName);
+  if (sheet) {
+    sheet.clear();
+  } else {
+    sheet = ss.insertSheet(sheetName);
+  }
+  sheet.activate();
+
+  // 3. Populate sheet
+  let currentRow = 1;
+  const title = `${orderIdsToExtract.join(', ')} - ${customerName}`;
+  sheet.getRange(currentRow, 1, 1, 3).merge().setValue(title).setFontWeight("bold").setFontSize(14).setHorizontalAlignment("center");
+  currentRow += 2;
+
+  const sheetHeaders = ["Cantidad", "Inventario Actual", "Nombre Producto"];
+  sheet.getRange(currentRow, 1, 1, 3).setValues([sheetHeaders]).setFontWeight("bold").setHorizontalAlignment("center").setVerticalAlignment("middle");
+  sheet.setFrozenRows(currentRow);
+  currentRow++;
+
+  const allCategories = Object.keys(categorySummary).sort();
+  allCategories.forEach(category => {
+    sheet.getRange(currentRow, 1, 1, 3).merge().setValue(category.toUpperCase()).setFontWeight("bold").setHorizontalAlignment("center").setBackground("#f2f2f2");
+    currentRow++;
+
+    const products = categorySummary[category].products;
+    const sortedProductNames = Object.keys(products).sort();
+    const productRows = [];
+    sortedProductNames.forEach(productName => {
+      productRows.push([products[productName].total, products[productName].stock, productName]);
+    });
+
+    if (productRows.length > 0) {
+      const dataRange = sheet.getRange(currentRow, 1, productRows.length, 3);
+      dataRange.setValues(productRows);
+      dataRange.setHorizontalAlignment("center").setVerticalAlignment("middle");
+      currentRow += productRows.length;
+    }
+    currentRow++;
+  });
+
+  // 4. Formatting
+  sheet.setColumnWidth(1, 100);
+  sheet.setColumnWidth(2, 150);
+  sheet.setColumnWidth(3, 350);
+
+  return sheet.getName(); // Return the name of the created sheet
 }
 
 /**
