@@ -189,11 +189,7 @@
     <h2>Flujo de Trabajo Diario</h2>
     <div class="actions-grid">
         <div>
-            <p><strong>Paso 1:</strong> Carga los pedidos del día y/o limpia la sesión anterior.</p>
-            <div style="display: flex; gap: 10px; margin-bottom: 10px;">
-                <button id="paste-import-btn" class="action-button" style="margin-bottom: 0; flex: 1;">Importar Pedidos (Copiar y Pegar)</button>
-                <button id="clean-session-btn" class="action-button" style="margin-bottom: 0; flex: 1; background-color: #fd7e14;">Limpiar Sesion Anterior</button>
-            </div>
+            <p><strong>Paso 1:</strong> Carga los pedidos del día.</p>
             <p><strong>Paso 2:</strong> Revisa y limpia los datos.</p>
             <button id="clean-btn" class="action-button">Limpiar Datos (Duplicados y Proveedores)</button>
             <p><strong>Paso 3:</strong> Importa los movimientos del banco.</p>
@@ -216,6 +212,8 @@
                 <button id="add-order-btn" class="action-button" style="background-color: #17a2b8; margin-bottom: 0; flex: 1;">➕ Agregar Pedido</button>
                 <button id="process-extra-orders-btn" class="action-button" style="background-color: #28a745; margin-bottom: 0; flex: 1;">📦 Procesar Pedidos Agregados</button>
             </div>
+            <button id="paste-import-btn" class="action-button">Importar Pedidos (Copiar y Pegar)</button>
+            <button id="clean-session-btn" class="action-button" style="background-color: #fd7e14;">Limpiar Sesion Anterior</button>
             <button id="delete-order-btn" class="action-button" style="background-color: #dc3545;">➖ Eliminar Pedido</button>
             <button id="view-deleted-btn" class="action-button" style="background-color: #0d6efd;">👀 Ver Eliminados o Reincorporar</button>
         </div>
