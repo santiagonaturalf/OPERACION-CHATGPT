@@ -190,7 +190,10 @@
     <div class="actions-grid">
         <div>
             <p><strong>Paso 1:</strong> Carga los pedidos del día.</p>
-            <button id="paste-import-btn" class="action-button">Importar Pedidos (Copiar y Pegar)</button>
+            <div style="display: flex; gap: 10px; margin-bottom: 10px;">
+                <button id="clean-session-btn" class="action-button" style="background-color: #fd7e14; margin-bottom: 0; flex: 1;">Limpiar Sesion Anterior</button>
+                <button id="paste-import-btn" class="action-button" style="margin-bottom: 0; flex: 1;">Importar Pedidos (Copiar y Pegar)</button>
+            </div>
             <p><strong>Paso 2:</strong> Revisa y limpia los datos.</p>
             <button id="clean-btn" class="action-button">Limpiar Datos (Duplicados y Proveedores)</button>
             <p><strong>Paso 3:</strong> Importa los movimientos del banco.</p>
@@ -215,7 +218,6 @@
                 <button id="extract-order-btn" class="action-button" style="background-color: #fd7e14; margin-bottom: 0; flex: 1;">⚡ Extraer Pedido Urgente</button>
                 <button id="view-envasado-btn" class="action-button" style="background-color: #20c997; margin-bottom: 0; flex: 1;">👁️ Ver Listas Envasado</button>
             </div>
-            <button id="clean-session-btn" class="action-button" style="background-color: #fd7e14;">Limpiar Sesion Anterior</button>
             <button id="delete-order-btn" class="action-button" style="background-color: #dc3545;">➖ Eliminar Pedido</button>
             <button id="view-deleted-btn" class="action-button" style="background-color: #0d6efd;">👀 Ver Eliminados o Reincorporar</button>
         </div>
