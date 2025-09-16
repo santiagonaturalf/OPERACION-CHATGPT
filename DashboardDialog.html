@@ -201,6 +201,7 @@
         <div>
             <p><strong>Acciones de Operación:</strong></p>
             <button id="packaging-btn" class="action-button">▶️ Iniciar Proceso de Envasado</button>
+            <button id="extract-order-btn" class="action-button" style="background-color: #fd7e14;">⚡ Extraer Pedido Urgente</button>
             <button id="acq-btn" class="action-button">📝 Generar Adquisiciones</button>
             <button id="notify-btn" class="action-button">📲 Notificar a Proveedores</button>
             <button id="comanda-rutas-btn" class="action-button">🚚 Comanda Rutas</button>
@@ -382,6 +383,15 @@
     document.getElementById('import-movements-btn').addEventListener('click', () => google.script.run.showImportMovementsDialog());
     document.getElementById('conciliation-btn').addEventListener('click', () => google.script.run.showConciliationDialog());
     document.getElementById('packaging-btn').addEventListener('click', () => google.script.run.startPackagingProcess());
+
+    document.getElementById('extract-order-btn').addEventListener('click', () => {
+      setLoadingState(true, 'Abriendo extractor de pedidos...');
+      google.script.run
+        .withSuccessHandler(() => setLoadingState(false)) // Simply reset loading state on success
+        .withFailureHandler(handleError)
+        .showExtractionDialog();
+    });
+
     document.getElementById('acq-btn').addEventListener('click', () => {
         setLoadingState(true, 'Generando borrador y abriendo editor...');
         google.script.run.withSuccessHandler(() => setLoadingState(false)).withFailureHandler(handleError).showAcquisitionEditor();

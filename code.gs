@@ -1572,6 +1572,220 @@ function showDashboard() {
   SpreadsheetApp.getUi().showModalDialog(html, 'Dashboard Operaciones SNF');
 }
 
+/**
+ * Muestra el diálogo para extraer pedidos de la lista de envasado.
+ */
+function showExtractionDialog() {
+  const html = HtmlService.createHtmlOutputFromFile('ExtractionDialog')
+    .setWidth(800)
+    .setHeight(600);
+  SpreadsheetApp.getUi().showModalDialog(html, 'Extraer Pedidos de la Lista de Envasado');
+}
+
+/**
+ * Obtiene una lista de pedidos únicos que pueden ser extraídos.
+ * Omite los pedidos que ya han sido marcados como eliminados.
+ * @returns {Array<{orderNumber: string, customerName: string}>} Un array de objetos de pedido.
+ */
+function getOrdersForExtraction() {
+  try {
+    const sheet = getSheet_('Orders');
+    const data = sheet.getDataRange().getValues();
+    const headers = data.shift();
+
+    const idx = indexer(headers);
+    if (idx.numPedido < 0 || idx.nombre < 0 || idx.cantidad < 0) {
+      throw new Error("No se encontraron columnas críticas como 'Número de pedido', 'Nombre y apellido' o 'Item Quantity'.");
+    }
+
+    const uniqueOrders = {};
+
+    data.forEach((row) => {
+      const orderId = String(row[idx.numPedido] || '').trim();
+      const quantity = String(row[idx.cantidad] || '');
+
+      // Omitir filas sin ID de pedido o ya marcadas como eliminadas
+      if (!orderId || quantity.startsWith('E')) {
+        return;
+      }
+
+      // Solo necesitamos una entrada por número de pedido, tomamos la primera que veamos
+      if (!uniqueOrders[orderId]) {
+        uniqueOrders[orderId] = {
+          orderNumber: orderId,
+          customerName: row[idx.nombre] || 'N/A',
+        };
+      }
+    });
+
+    // Devolver un array de objetos, ordenado por número de pedido descendente
+    const sortedOrders = Object.values(uniqueOrders).sort((a,b) => b.orderNumber - a.orderNumber);
+    return sortedOrders;
+  } catch (e) {
+    Logger.log(`Error in getOrdersForExtraction: ${e.stack}`);
+    throw new Error(`Error al obtener los pedidos: ${e.toString()}`);
+  }
+}
+
+/**
+ * Extrae pedidos de la lista de envasado principal, creando una lista para la extracción
+ * y una nueva lista de envasado con los items restantes.
+ * @param {string[]} orderIdsToExtract Un array de IDs de pedido a extraer.
+ * @returns {{status: string, message: string}} Un objeto con el resultado de la operación.
+ */
+function extractOrdersFromPackingList(orderIdsToExtract) {
+  try {
+    if (!orderIdsToExtract || !Array.isArray(orderIdsToExtract) || orderIdsToExtract.length === 0) {
+      throw new Error("No se seleccionaron pedidos para extraer.");
+    }
+
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const ordersSheet = ss.getSheetByName('Orders');
+    const allOrdersData = ordersSheet.getDataRange().getValues();
+    const headers = allOrdersData.shift();
+    const idx = indexer(headers);
+
+    const extractedRows = [];
+    let customerName = '';
+    allOrdersData.forEach(row => {
+      const orderId = String(row[idx.numPedido]);
+      if (orderIdsToExtract.includes(orderId)) {
+        extractedRows.push(row);
+        if (!customerName) {
+          customerName = row[idx.nombre];
+        }
+      }
+    });
+
+    if (extractedRows.length === 0) {
+      throw new Error("No se encontraron los productos para los pedidos seleccionados.");
+    }
+
+    const date = new Date();
+    const formattedDate = Utilities.formatDate(date, Session.getScriptTimeZone(), "yyyy-MM-dd");
+    const sheetName = `Lista de Envasado - Extraccion - ${customerName} (Pedidos ${orderIdsToExtract.join(', ')}) - ${formattedDate}`;
+
+    let extractionSheet = ss.getSheetByName(sheetName);
+    if (extractionSheet) {
+      extractionSheet.clear();
+    } else {
+      extractionSheet = ss.insertSheet(sheetName);
+    }
+    extractionSheet.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight("bold");
+    extractionSheet.getRange(2, 1, extractedRows.length, extractedRows[0].length).setValues(extractedRows);
+    extractionSheet.autoResizeColumns(1, headers.length);
+
+    generatePostExtractionPackingList(orderIdsToExtract);
+
+    return {
+      status: 'success',
+      message: `Extracción completada. Se creó la hoja "${sheetName}" y la nueva lista de envasado post-extracción.`
+    };
+  } catch (e) {
+    Logger.log(`Error en extractOrdersFromPackingList: ${e.stack}`);
+    throw new Error(`Ocurrió un error en la extracción: ${e.message}`);
+  }
+}
+
+/**
+ * Genera una lista de envasado que excluye una lista de pedidos.
+ * @param {string[]} excludedOrderIds Un array de IDs de pedido a excluir.
+ */
+function generatePostExtractionPackingList(excludedOrderIds) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ordersSheet = ss.getSheetByName('Orders');
+  const skuSheet = ss.getSheetByName('SKU');
+
+  const skuMap = getSkuMap(skuSheet);
+  const allOrdersData = ordersSheet.getDataRange().getValues();
+  const headers = allOrdersData.shift();
+  const idx = indexer(headers);
+
+  const productTotals = {};
+  allOrdersData.forEach(row => {
+    const orderId = String(row[idx.numPedido]);
+    if (excludedOrderIds.includes(orderId)) {
+      return;
+    }
+
+    const name = row[idx.producto];
+    const qty = row[idx.cantidad];
+    if (name && qty) {
+      if (!productTotals[name]) { productTotals[name] = 0; }
+      productTotals[name] += parseInt(qty, 10) || 0;
+    }
+  });
+
+  const stockMap = getStockFromOrders();
+  const categorySummary = {};
+  for (const productName in productTotals) {
+    const category = skuMap[productName] ? skuMap[productName].category : 'Sin Categoría';
+    if (!categorySummary[category]) {
+      categorySummary[category] = { count: 0, products: {} };
+    }
+    categorySummary[category].count++;
+    const inventoryInfo = stockMap[productName];
+    let inventoryValue = 'No encontrado';
+    if (inventoryInfo) {
+      const stock = String(inventoryInfo.quantity);
+      const unit = String(inventoryInfo.unit);
+      if (stock || unit) {
+        inventoryValue = `${stock} ${unit}`.trim();
+      }
+    }
+    categorySummary[category].products[productName] = {
+      total: productTotals[productName],
+      stock: inventoryValue
+    };
+  }
+
+  const date = new Date();
+  const formattedDate = Utilities.formatDate(date, Session.getScriptTimeZone(), "yyyy-MM-dd");
+  const sheetName = `Lista de Envasado - Post Extraccion - ${formattedDate}`;
+
+  let sheet = ss.getSheetByName(sheetName);
+  if (sheet) {
+    sheet.clear();
+  } else {
+    sheet = ss.insertSheet(sheetName);
+  }
+  sheet.activate();
+
+  let currentRow = 1;
+  sheet.getRange(currentRow, 1, 1, 3).merge().setValue("Lista de Envasado (Post-Extracción)").setFontWeight("bold").setFontSize(14).setHorizontalAlignment("center");
+  currentRow += 2;
+
+  const sheetHeaders = ["Cantidad", "Inventario Actual", "Nombre Producto"];
+  sheet.getRange(currentRow, 1, 1, 3).setValues([sheetHeaders]).setFontWeight("bold").setHorizontalAlignment("center").setVerticalAlignment("middle");
+  sheet.setFrozenRows(currentRow);
+  currentRow++;
+
+  const allCategories = Object.keys(categorySummary).sort();
+  allCategories.forEach(category => {
+    sheet.getRange(currentRow, 1, 1, 3).merge().setValue(category.toUpperCase()).setFontWeight("bold").setHorizontalAlignment("center").setBackground("#f2f2f2");
+    currentRow++;
+
+    const products = categorySummary[category].products;
+    const sortedProductNames = Object.keys(products).sort();
+    const productRows = [];
+    sortedProductNames.forEach(productName => {
+      productRows.push([products[productName].total, products[productName].stock, productName]);
+    });
+
+    if (productRows.length > 0) {
+      const dataRange = sheet.getRange(currentRow, 1, productRows.length, 3);
+      dataRange.setValues(productRows);
+      dataRange.setHorizontalAlignment("center").setVerticalAlignment("middle");
+      currentRow += productRows.length;
+    }
+    currentRow++;
+  });
+
+  sheet.setColumnWidth(1, 100);
+  sheet.setColumnWidth(2, 150);
+  sheet.setColumnWidth(3, 350);
+}
+
 /*************************** CONFIG ***************************/
 // Nombre de hojas esperadas
 const SH_ORDENES            = 'Orders';          // Debe contener cabeza con: N° Pedido, Nombre Producto, Cantidad, Comuna (o similar)
