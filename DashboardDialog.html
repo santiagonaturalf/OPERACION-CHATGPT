@@ -397,19 +397,16 @@
     document.getElementById('process-extra-orders-btn').addEventListener('click', () => {
         setLoadingState(true, 'Buscando y procesando pedidos agregados...');
         google.script.run
-            .withSuccessHandler(url => {
-                setLoadingState(false);
-                if (url) {
-                    // Abrir la URL del PDF en una nueva pestaña
-                    window.open(url, '_blank');
-                    setLoadingState(false, '¡Lista de envasado generada y abierta en una nueva pestaña!');
-                } else {
-                    // Si no hay URL, es porque no había nada que procesar o hubo un error manejado con alerta.
-                    setLoadingState(false);
+            .withSuccessHandler(response => {
+                setLoadingState(false, (response && response.message) || 'Proceso completado.');
+                if (response && response.message) {
+                    alert(response.message);
+                }
+                if (response && response.url) {
+                    window.open(response.url, '_blank');
                 }
             })
             .withFailureHandler(err => {
-                // Re-habilita los botones y muestra el error.
                 handleError(err);
             })
             .processExtraTimeOrders();

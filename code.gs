@@ -1170,25 +1170,26 @@ function appendOrdersFromPastedText(textData) {
 
 /**
  * Orquesta el proceso de generar la lista de envasado para los pedidos agregados en tiempos posteriores.
+ * (MODIFICADO) - Ahora también calcula y agrega nuevas adquisiciones si son necesarias.
  */
 function processExtraTimeOrders() {
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const sheet = ss.getSheetByName('Orders');
-    if (!sheet) throw new Error("No se encontró la hoja 'Orders'.");
+    const ordersSheet = ss.getSheetByName('Orders');
+    if (!ordersSheet) throw new Error("No se encontró la hoja 'Orders'.");
 
-    const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    const headers = ordersSheet.getRange(1, 1, 1, ordersSheet.getLastColumn()).getValues()[0];
     const statusColIndex = headers.indexOf("Estado");
     if (statusColIndex === -1) {
         throw new Error("No se encontró la columna 'Estado' en la hoja 'Orders'.");
     }
 
-    const lastRow = sheet.getLastRow();
+    const lastRow = ordersSheet.getLastRow();
     let highestTiempo = 0;
     let statusToProcess = '';
 
     if (lastRow > 1) {
-      const statusData = sheet.getRange(2, statusColIndex + 1, lastRow - 1, 1).getValues();
+      const statusData = ordersSheet.getRange(2, statusColIndex + 1, lastRow - 1, 1).getValues();
       statusData.forEach(row => {
         const status = row[0];
         if (typeof status === 'string' && status.includes('Aprobado y Agregado en')) {
@@ -1208,8 +1209,7 @@ function processExtraTimeOrders() {
     }
 
     if (highestTiempo === 0) {
-      SpreadsheetApp.getUi().alert('No se encontraron pedidos agregados en segundo tiempo o posterior para procesar.');
-      return;
+      return { message: 'No se encontraron pedidos agregados en segundo tiempo o posterior para procesar.', url: null };
     }
 
     let tiempoSuffix;
@@ -1219,20 +1219,157 @@ function processExtraTimeOrders() {
         default: tiempoSuffix = `${highestTiempo}to`;
     }
 
-    const categoriesData = getPackagingDataForExtraTime(statusToProcess);
+    // --- INICIO DE LA NUEVA LÓGICA DE ADQUISICIONES ---
+    Logger.log(`Iniciando procesamiento de adquisiciones para: ${statusToProcess}`);
+
+    // PASO 1: Calcular necesidades de productos para los pedidos agregados.
+    const productNeeds = calculateNeedsForStatus(statusToProcess);
+    Logger.log("Necesidades calculadas para el 2do tiempo: " + JSON.stringify(productNeeds));
+
+    // PASO 2: Obtener el estado actual de "Inventario al Finalizar" de la Lista de Adquisiciones.
+    const acquisitionState = getAcquisitionListState();
+    Logger.log("Estado de la lista de adquisiciones: " + JSON.stringify(acquisitionState));
+
+    // PASO 3: Comparar necesidades con inventario y determinar nuevas adquisiciones.
+    const newAcquisitions = [];
+    const { baseProductPurchaseOptions } = getPurchaseDataMaps(ss.getSheetByName('SKU'));
+
+    for (const baseProduct in productNeeds) {
+        const normalizedBaseProduct = normalizeKey(baseProduct);
+        const needsByUnit = productNeeds[baseProduct];
+        for (const unit in needsByUnit) {
+            const needed = needsByUnit[unit];
+            // El inventario disponible es el "Inventario al Finalizar" del ciclo anterior.
+            const available = acquisitionState[normalizedBaseProduct] ? acquisitionState[normalizedBaseProduct].invFinalizar : 0;
+            const shortfall = needed - available;
+
+            if (shortfall > 0) {
+                Logger.log(`Shortfall para ${baseProduct}: Necesidad ${needed}, Disponible ${available}, Faltante ${shortfall}`);
+                const purchaseOptions = baseProductPurchaseOptions[normalizedBaseProduct];
+                if (purchaseOptions) {
+                    newAcquisitions.push({
+                        productName: baseProduct,
+                        shortfall: shortfall,
+                        unit: unit,
+                        purchaseOptions: purchaseOptions,
+                        totalNeed: needed // Guardar la necesidad total para referencia
+                    });
+                } else {
+                    Logger.log(`ADVERTENCIA: No se encontraron opciones de compra para ${baseProduct}. No se puede crear adquisición.`);
+                }
+            }
+        }
+    }
+    Logger.log("Nuevas adquisiciones detectadas: " + JSON.stringify(newAcquisitions));
+
+    // PASO 4: Si hay nuevas adquisiciones, agregarlas a la hoja.
+    const rowsToAdd = [];
+    if (newAcquisitions.length > 0) {
+        Logger.log(`Calculando detalles de compra para ${newAcquisitions.length} adquisiciones...`);
+        const latestSuppliers = getLatestSuppliersFromHistory();
+
+        newAcquisitions.forEach(acq => {
+            const { productName, shortfall, unit, purchaseOptions, totalNeed } = acq;
+            const purchaseOptionsSorted = purchaseOptions.options.sort((a, b) => b.size - a.size);
+
+            let selectedFormat = null;
+            let quantityToBuy = 0;
+
+            // Buscar el formato más pequeño que sea IGUAL O MAYOR a la necesidad.
+            const idealOption = purchaseOptionsSorted.slice().reverse().find(o => o.size >= shortfall && o.unit === unit);
+
+            if (idealOption) {
+                selectedFormat = idealOption;
+                quantityToBuy = 1;
+            } else {
+                // Si no hay uno ideal, usar el más grande y calcular cuántos se necesitan.
+                const biggestOption = purchaseOptionsSorted[0];
+                if (biggestOption && biggestOption.unit === unit) {
+                    selectedFormat = biggestOption;
+                    quantityToBuy = Math.ceil(shortfall / biggestOption.size);
+                }
+            }
+
+            if (selectedFormat && quantityToBuy > 0) {
+                const normalizedProductName = normalizeKey(productName);
+                const supplier = getBestSupplier(purchaseOptions, latestSuppliers[normalizedProductName]);
+                const formatString = `${selectedFormat.name} (${selectedFormat.size} ${selectedFormat.unit})`;
+
+                const currentInventory = acquisitionState[normalizedProductName] ? acquisitionState[normalizedProductName].invFinalizar : 0;
+                const purchasedAmount = quantityToBuy * selectedFormat.size;
+                const finalInventory = currentInventory + purchasedAmount - totalNeed;
+
+                const rowData = [
+                    productName,
+                    quantityToBuy,
+                    formatString,
+                    currentInventory,
+                    unit,
+                    totalNeed,
+                    unit,
+                    finalInventory,
+                    unit,
+                    "", // Precio Adq. Anterior
+                    "", // Precio Adq. HOY
+                    supplier
+                ];
+                rowsToAdd.push(rowData);
+            }
+        });
+
+        if (rowsToAdd.length > 0) {
+            const acqSheet = ss.getSheetByName('Lista de Adquisiciones');
+            if (acqSheet) {
+                const startRow = acqSheet.getLastRow() + 1;
+                acqSheet.getRange(startRow, 1, rowsToAdd.length, rowsToAdd[0].length).setValues(rowsToAdd);
+                Logger.log(`${rowsToAdd.length} fila(s) de nuevas adquisiciones agregadas a la hoja.`);
+
+                // Etiquetar las nuevas filas
+                const tagHeader = "Etiqueta";
+                const tagColumn = 13; // Columna M
+                let headerRange = acqSheet.getRange(1, tagColumn);
+                if (headerRange.getValue() !== tagHeader) {
+                    headerRange.setValue(tagHeader).setFontWeight("bold");
+                }
+
+                const tagValue = `Adicion ${tiempoSuffix} Tiempo`;
+                const tagRange = acqSheet.getRange(startRow, tagColumn, rowsToAdd.length, 1);
+                const tags = Array(rowsToAdd.length).fill([tagValue]);
+                tagRange.setValues(tags);
+                Logger.log(`Nuevas adquisiciones etiquetadas con: ${tagValue}`);
+            }
+        }
+    } else {
+      Logger.log('No se requieren nuevas adquisiciones.');
+    }
+
+    // --- FIN DE LA NUEVA LÓGICA DE ADQUISICIONES ---
+
+
+    // --- LÓGICA EXISTENTE DE ENVASADO (se mantiene) ---
+    const categoriesData = getPackagingDataForExtraTime(statusToProcess, acquisitionState);
     const allCategories = Object.keys(categoriesData).sort();
 
     if (allCategories.length === 0) {
-      SpreadsheetApp.getUi().alert(`No se encontraron productos para el estado '${statusToProcess}'.`);
-      return null;
+      return { message: `No se encontraron productos para el estado '${statusToProcess}'.`, url: null };
     }
 
     const printUrl = generatePackagingSheetForExtraTime(allCategories, categoriesData, tiempoSuffix);
-    return printUrl;
+
+    // Devolver un mensaje de éxito + URL
+    const message = newAcquisitions.length > 0
+        ? `Se agregaron ${newAcquisitions.length} item(s) a la Lista de Adquisiciones. `
+        : 'No se requirieron nuevas adquisiciones. ';
+
+    return {
+      message: message + 'La lista de envasado está lista.',
+      url: printUrl
+    };
 
   } catch (e) {
     Logger.log(`Error in processExtraTimeOrders: ${e.stack}`);
-    SpreadsheetApp.getUi().alert(`Ocurrió un error: ${e.message}`);
+    // Re-lanzar el error para que el cliente lo maneje a través de withFailureHandler
+    throw new Error(`Ocurrió un error en el servidor: ${e.message}`);
   }
 }
 
@@ -1787,7 +1924,7 @@ function getStockFromOrders() {
   return stockMap;
 }
 
-function getPackagingDataForExtraTime(statusToProcess) {
+function getPackagingDataForExtraTime(statusToProcess, acquisitionState) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const ordersSheet = ss.getSheetByName('Orders');
   const skuSheet = ss.getSheetByName('SKU');
@@ -1821,7 +1958,6 @@ function getPackagingDataForExtraTime(statusToProcess) {
     }
   });
 
-  const stockMap = getStockFromOrders();
   const categorySummary = {};
 
   for (const productName in productTotals) {
@@ -1831,14 +1967,18 @@ function getPackagingDataForExtraTime(statusToProcess) {
     }
     categorySummary[category].count++;
 
-    const inventoryInfo = stockMap[productName];
     let inventoryValue = 'No encontrado';
-    if (inventoryInfo) {
-      const stock = String(inventoryInfo.quantity);
-      const unit = String(inventoryInfo.unit);
-      if (stock || unit) {
-        inventoryValue = `${stock} ${unit}`.trim();
-      }
+    const baseProduct = skuMap[productName] ? skuMap[productName].base : null;
+    if (baseProduct) {
+        const normalizedBaseProduct = normalizeKey(baseProduct);
+        const acqInfo = acquisitionState[normalizedBaseProduct];
+        if (acqInfo) {
+            const stock = acqInfo.invFinalizar;
+            const unit = acqInfo.unidadInvFinal;
+            if (stock !== "" && unit) {
+               inventoryValue = `${stock} ${unit}`.trim();
+            }
+        }
     }
 
     categorySummary[category].products[productName] = {
@@ -1851,7 +1991,7 @@ function getPackagingDataForExtraTime(statusToProcess) {
 
 function generatePackagingSheetForExtraTime(selectedCategories, data, tiempoSuffix) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const stockMap = getStockFromOrders();
+  // const stockMap = getStockFromOrders(); // No longer needed, data is in 'data' object.
 
   const date = new Date();
   const formattedDate = Utilities.formatDate(date, Session.getScriptTimeZone(), "yyyy-MM-dd");
@@ -1886,15 +2026,7 @@ function generatePackagingSheetForExtraTime(selectedCategories, data, tiempoSuff
 
     const productRows = [];
     sortedProductNames.forEach(productName => {
-      const inventoryInfo = stockMap[productName];
-      let inventoryValue = 'No encontrado';
-      if (inventoryInfo) {
-        const stock = String(inventoryInfo.quantity);
-        const unit = String(inventoryInfo.unit);
-        if (stock || unit) {
-          inventoryValue = `${stock} ${unit}`.trim();
-        }
-      }
+      const inventoryValue = products[productName].stock || 'No encontrado';
       productRows.push([products[productName].total, inventoryValue, productName]);
     });
 
@@ -2408,6 +2540,53 @@ function getHistoricalPrices() {
   return priceMap;
 }
 
+/**
+ * Lee la hoja "Lista de Adquisiciones" y devuelve un mapa con el estado actual de cada producto.
+ * @returns {Object} Un mapa donde la clave es el nombre normalizado del producto base.
+ */
+function getAcquisitionListState() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName("Lista de Adquisiciones");
+  const state = {};
+
+  if (!sheet || sheet.getLastRow() < 2) {
+    Logger.log("getAcquisitionListState: La hoja 'Lista de Adquisiciones' está vacía o no existe.");
+    return state;
+  }
+
+  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  const idx = getHeaderIndexes_(sheet, H_ADQ);
+
+  if (idx.productoBase === -1 || idx.invFinalizar === -1) {
+    // No lanzar error, simplemente devolver estado vacío y loguear. Puede que la hoja esté recién creada.
+    Logger.log("getAcquisitionListState: No se encontraron las columnas 'Producto Base' o 'Inventario al Finalizar'.");
+    return state;
+  }
+  const data = sheet.getRange(2, 1, sheet.getLastRow() - 1, sheet.getLastColumn()).getValues();
+
+
+  data.forEach(row => {
+    const productName = row[idx.productoBase];
+    if (productName) {
+      const normalizedName = normalizeKey(productName);
+      state[normalizedName] = {
+        invFinalizar: parseFloat(String(row[idx.invFinalizar]).replace(",", ".")) || 0,
+        productoBase: productName,
+        cantidadAComprar: row[idx.cantComprar],
+        formatoDeCompra: row[idx.formatoCompra],
+        invActual: row[idx.invActual],
+        unidadInvActual: row[idx.unidadInvActual],
+        necesidadVenta: row[idx.necesidadVenta],
+        unidadVenta: row[idx.unidadVenta],
+        unidadInvFinal: row[idx.unidadInvFinal],
+        proveedor: idx.proveedor !== -1 ? row[idx.proveedor] : 'Sin Proveedor'
+      };
+    }
+  });
+
+  return state;
+}
+
 function getCurrentInventory() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const inventorySheet = ss.getSheetByName("Inventario Actual");
@@ -2707,6 +2886,60 @@ function calculateBaseProductNeeds(ordersSheet, productToSkuMap) {
       baseProductNeeds[baseProduct][saleUnit] += totalSaleAmount;
     }
   });
+  return baseProductNeeds;
+}
+
+/**
+ * Calcula las necesidades de producto base para pedidos con un estado específico.
+ * @param {string} statusToProcess El estado del pedido a filtrar.
+ * @returns {Object} Un objeto con las necesidades agregadas por producto base y unidad.
+ */
+function calculateNeedsForStatus(statusToProcess) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ordersSheet = ss.getSheetByName('Orders');
+  const skuSheet = ss.getSheetByName('SKU');
+
+  // Se necesita el mapa de SKU para convertir de Nombre de Item a Producto Base
+  const { productToSkuMap } = getPurchaseDataMaps(skuSheet);
+
+  const ordersData = ordersSheet.getDataRange().getValues();
+  const headers = ordersData.shift(); // Quitar encabezados
+
+  const idx = indexer(headers); // Usar el indexador robusto existente
+  const nameColIdx = idx.producto;
+  const qtyColIdx = idx.cantidad;
+  const statusColIdx = idx.estado;
+
+  if (nameColIdx === -1 || qtyColIdx === -1 || statusColIdx === -1) {
+    throw new Error("calculateNeedsForStatus: Faltan columnas requeridas: 'Item Name', 'Item Quantity' o 'Estado'.");
+  }
+
+  const baseProductNeeds = {};
+  ordersData.forEach(row => {
+    const status = row[statusColIdx];
+    if (status === statusToProcess) {
+      const name = row[nameColIdx];
+      const qty = row[qtyColIdx];
+
+      if (name && qty && productToSkuMap[name]) {
+        const skuInfo = productToSkuMap[name];
+        const baseProduct = skuInfo.productoBase;
+        const saleUnit = normalizeUnit(skuInfo.unidadVenta);
+        const totalSaleAmount = (parseFloat(String(qty).replace(",", ".")) || 0) * skuInfo.cantidadVenta;
+
+        if (totalSaleAmount > 0) {
+            if (!baseProductNeeds[baseProduct]) {
+              baseProductNeeds[baseProduct] = {};
+            }
+            if (!baseProductNeeds[baseProduct][saleUnit]) {
+              baseProductNeeds[baseProduct][saleUnit] = 0;
+            }
+            baseProductNeeds[baseProduct][saleUnit] += totalSaleAmount;
+        }
+      }
+    }
+  });
+
   return baseProductNeeds;
 }
 
