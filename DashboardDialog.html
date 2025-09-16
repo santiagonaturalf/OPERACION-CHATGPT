@@ -202,6 +202,7 @@
             <p><strong>Acciones de Operación:</strong></p>
             <button id="packaging-btn" class="action-button">▶️ Iniciar Proceso de Envasado</button>
             <button id="extract-order-btn" class="action-button" style="background-color: #fd7e14;">⚡ Extraer Pedido Urgente</button>
+            <button id="view-envasado-btn" class="action-button" style="background-color: #20c997;">👁️ Ver Listas Envasado</button>
             <button id="acq-btn" class="action-button">📝 Generar Adquisiciones</button>
             <button id="notify-btn" class="action-button">📲 Notificar a Proveedores</button>
             <button id="comanda-rutas-btn" class="action-button">🚚 Comanda Rutas</button>
@@ -390,6 +391,10 @@
         .withSuccessHandler(() => setLoadingState(false)) // Simply reset loading state on success
         .withFailureHandler(handleError)
         .showExtractionDialog();
+    });
+
+    document.getElementById('view-envasado-btn').addEventListener('click', () => {
+      google.script.run.showEnvasadoViewerDialog();
     });
 
     document.getElementById('acq-btn').addEventListener('click', () => {
