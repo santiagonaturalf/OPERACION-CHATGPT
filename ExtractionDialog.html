@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <style>
+    /* Reusing styles from DashboardDialog.html for consistency */
+    body, html {
+        margin: 0;
+        padding: 0;
+        font-family: Inter, Roboto, Arial, sans-serif;
+        background-color: rgba(0,0,0,0.6);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 100%;
+    }
+    .panel {
+      background: #fff;
+      border-radius: 14px;
+      padding: 24px;
+      width: 90%;
+      max-width: 800px;
+      max-height: 90vh;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+    }
+    h2 {
+      margin-top: 0;
+      margin-bottom: 16px;
+      border-bottom: 1px solid #eee;
+      padding-bottom: 12px;
+    }
+    #search-input {
+      width: 100%;
+      padding: 10px;
+      margin-bottom: 16px;
+      border-radius: 8px;
+      border: 1px solid #ccc;
+      box-sizing: border-box;
+    }
+    #order-list-container {
+      overflow-y: auto;
+      flex-grow: 1;
+      padding-right: 10px;
+      border: 1px solid #eee;
+      border-radius: 8px;
+    }
+    .footer {
+      margin-top: 20px;
+      text-align: right;
+      border-top: 1px solid #eee;
+      padding-top: 16px;
+    }
+    .footer button {
+        padding: 10px 20px;
+        border: none;
+        border-radius: 8px;
+        cursor: pointer;
+        font-weight: bold;
+        margin-left: 10px;
+    }
+    #confirm-btn { background-color: #0d6efd; color: white; }
+    #cancel-btn { background-color: #6c757d; color: white; }
+
+    .order-item {
+        display: flex;
+        align-items: center;
+        padding: 10px;
+        border-bottom: 1px solid #f0f0f0;
+    }
+    .order-item:last-child {
+        border-bottom: none;
+    }
+    .order-item input[type="checkbox"] {
+        margin-right: 15px;
+        width: 18px;
+        height: 18px;
+    }
+    .order-details {
+        display: flex;
+        justify-content: space-between;
+        flex-grow: 1;
+    }
+    .order-details strong { font-size: 14px; }
+    .order-details span { color: #555; }
+    .empty { padding: 20px; text-align: center; color: #666; }
+    #status-bar { min-height: 20px; margin-top: 10px; font-size: 13px; color: #333; }
+  </style>
+</head>
+<body>
+  <div class="panel">
+    <h2>Extraer Pedido(s) de la Lista de Envasado</h2>
+    <p>Seleccione los pedidos que desea extraer. Esto los quitará de la lista de envasado principal y creará una lista separada para ellos.</p>
+    <input type="text" id="search-input" placeholder="Buscar por Nº Pedido o Cliente...">
+
+    <div id="order-list-container">
+      <!-- Los pedidos se cargarán aquí -->
+    </div>
+    <div id="status-bar">Cargando pedidos...</div>
+
+    <div class="footer">
+      <button id="cancel-btn">Cancelar</button>
+      <button id="confirm-btn">Confirmar Extracción</button>
+    </div>
+  </div>
+
+  <script>
+    let allOrders = [];
+
+    // --- Carga Inicial ---
+    window.addEventListener('load', () => {
+      google.script.run
+        .withSuccessHandler(orders => {
+          allOrders = orders;
+          populateOrderList(allOrders);
+          document.getElementById('status-bar').textContent = `Mostrando ${orders.length} pedidos.`;
+        })
+        .withFailureHandler(handleError)
+        .getOrdersForExtraction(); // Esta función la crearé en code.gs
+    });
+
+    // --- Poblar la lista ---
+    function populateOrderList(orders) {
+      const container = document.getElementById('order-list-container');
+      container.innerHTML = '';
+
+      if (!orders || orders.length === 0) {
+        container.innerHTML = '<div class="empty">No se encontraron pedidos para extraer.</div>';
+        return;
+      }
+
+      orders.forEach(order => {
+        const itemDiv = document.createElement('div');
+        itemDiv.className = 'order-item';
+        itemDiv.innerHTML = `
+          <input type="checkbox" data-order-id="${escapeHtml(order.orderNumber)}">
+          <div class="order-details">
+            <div><strong>#${escapeHtml(order.orderNumber)}</strong> - ${escapeHtml(order.customerName)}</div>
+          </div>
+        `;
+        container.appendChild(itemDiv);
+      });
+    }
+
+    // --- Búsqueda y Filtro ---
+    document.getElementById('search-input').addEventListener('keyup', (e) => {
+      const searchTerm = e.target.value.toLowerCase();
+      const filteredOrders = allOrders.filter(order => {
+        return order.orderNumber.toLowerCase().includes(searchTerm) ||
+               order.customerName.toLowerCase().includes(searchTerm);
+      });
+      populateOrderList(filteredOrders);
+    });
+
+    // --- Acciones de Botones ---
+    document.getElementById('cancel-btn').addEventListener('click', () => {
+      google.script.host.close();
+    });
+
+    document.getElementById('confirm-btn').addEventListener('click', () => {
+      const selectedIds = [];
+      document.querySelectorAll('#order-list-container input[type="checkbox"]:checked').forEach(checkbox => {
+        selectedIds.push(checkbox.dataset.orderId);
+      });
+
+      if (selectedIds.length === 0) {
+        alert('Por favor, seleccione al menos un pedido para extraer.');
+        return;
+      }
+
+      setLoadingState(true, `Extrayendo ${selectedIds.length} pedido(s)...`);
+
+      google.script.run
+        .withSuccessHandler(response => {
+           setLoadingState(false, response.message);
+           alert(response.message);
+           if(response.status === 'success') {
+             google.script.host.close();
+           }
+        })
+        .withFailureHandler(handleError)
+        .extractOrdersFromPackingList(selectedIds); // Esta es la función principal que crearé en code.gs
+    });
+
+    // --- Helpers ---
+    function setLoadingState(loading, message = '') {
+      document.getElementById('confirm-btn').disabled = loading;
+      document.getElementById('cancel-btn').disabled = loading;
+      document.getElementById('status-bar').textContent = message;
+    }
+
+    function handleError(error) {
+      setLoadingState(false, `Error: ${error.message}`);
+      alert(`Error: ${error.message}`);
+    }
+
+    function escapeHtml(s) {
+      return (s || '').toString()
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+  </script>
+</body>
+</html>
