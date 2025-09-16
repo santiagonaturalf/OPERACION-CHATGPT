@@ -2450,7 +2450,7 @@ function generatePackagingSheet(selectedCategories) {
   let currentRow = 1;
 
   // Título principal
-  sheet.getRange(currentRow, 1, 1, 3).merge().setValue("Lista de Envasado").setFontWeight("bold").setFontSize(14).setHorizontalAlignment("center");
+  sheet.getRange(currentRow, 1, 1, 3).merge().setValue("Lista de Envasado - General").setFontWeight("bold").setFontSize(14).setHorizontalAlignment("center");
   currentRow += 2; // Espacio después del título
 
   // Encabezados de la tabla
