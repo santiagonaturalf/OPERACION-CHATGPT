@@ -3402,26 +3402,19 @@ function createAcquisitionPlan(baseProductNeeds, baseProductPurchaseOptions, inv
 
       // --- Existing logic for netNeed > 0 ---
       if (mode === 'just-in-time') {
-        let remainingNeed = netNeed;
+        // En modo "just-in-time", buscamos el formato de compra más pequeño disponible para minimizar el exceso de compra.
+        const smallestOption = purchaseOptions
+          .slice() // Crear una copia para no mutar el original
+          .sort((a, b) => a.size - b.size) // Ordenar de más pequeño a más grande
+          .find(o => o.unit === needUnit && o.size > 0); // Encontrar el primero válido
 
-        // Iterar de la opción más grande a la más pequeña
-        purchaseOptions.forEach(option => {
-          if (option.unit === needUnit && option.size > 0 && remainingNeed > 0) {
-            const numToBuy = Math.floor(remainingNeed / option.size);
-            if (numToBuy > 0) {
-              acquisitionPlan.push(createAcquisitionItem(baseProduct, totalNeed, needUnit, supplier, purchaseOptions, option, numToBuy, inventoryInfo));
-              remainingNeed -= numToBuy * option.size;
-            }
-          }
-        });
-
-        // Si queda un remanente, comprar una unidad del formato más pequeño disponible
-        if (remainingNeed > 0) {
-          const smallestOption = purchaseOptions.slice().reverse().find(o => o.unit === needUnit && o.size > 0);
-          if (smallestOption) {
-            acquisitionPlan.push(createAcquisitionItem(baseProduct, totalNeed, needUnit, supplier, purchaseOptions, smallestOption, 1, inventoryInfo));
-          }
+        if (smallestOption) {
+          // Calcular cuántas unidades de este formato pequeño se necesitan para cubrir la necesidad neta.
+          const numToBuy = Math.ceil(netNeed / smallestOption.size);
+          acquisitionPlan.push(createAcquisitionItem(baseProduct, totalNeed, needUnit, supplier, purchaseOptions, smallestOption, numToBuy, inventoryInfo));
         }
+        // Si no se encuentra una opción de compra (caso raro), no se agrega nada al plan para este producto.
+
       } else { // modo 'wholesale' (Compra Normal/Minimo Mayorista)
         // Buscar el formato más pequeño que sea IGUAL O MAYOR a la necesidad neta.
         // Se busca en reverso (del más pequeño al más grande) porque las opciones vienen ordenadas de mayor a menor.
