@@ -1218,7 +1218,7 @@ function processExtraTimeOrders() {
     let statusToProcess = '';
 
     if (lastRow > 1) {
-      const statusData = ordersSheet.getRange(2, statusColIndex + 1, lastRow - 1, 1).getValues();
+      const statusData = sheet.getRange(2, statusColIndex + 1, lastRow - 1, 1).getValues();
       statusData.forEach(row => {
         const status = row[0];
         if (typeof status === 'string' && status.includes('Aprobado y Agregado en')) {
