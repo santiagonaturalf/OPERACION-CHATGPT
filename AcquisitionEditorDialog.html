@@ -65,6 +65,34 @@
     #clear-list-btn { background-color: #dc3545; color: white; }
     #just-in-time-btn, #wholesale-btn, #show-all-btn { background-color: #f0f2f5; color: #050505; border: 1px solid #bec3c9; }
     #status { margin-right: auto; /* Pushes status to the left */ color: #606770; }
+    /* --- Tooltip Styles --- */
+    .breakdown-tooltip {
+        display: none;
+        position: absolute;
+        border: 1px solid #ccc;
+        background-color: white;
+        padding: 10px;
+        z-index: 1000;
+        max-width: 450px;
+        border-radius: 6px;
+        box-shadow: 0 3px 8px rgba(0,0,0,0.15);
+        font-size: 13px;
+        line-height: 1.4;
+    }
+    .breakdown-tooltip h4 {
+        margin-top: 0;
+        font-size: 15px;
+        border-bottom: 1px solid #eee;
+        padding-bottom: 8px;
+        margin-bottom: 8px;
+    }
+    .breakdown-tooltip ul {
+        margin: 0;
+        padding-left: 20px;
+    }
+    .breakdown-tooltip li {
+        margin-bottom: 5px;
+    }
   </style>
 </head>
 <body>
@@ -87,6 +115,10 @@
       <label style="display: flex; align-items: center; cursor: pointer;">
         <input type="checkbox" id="review-filter" style="width: auto; margin-right: 5px;">
         Mostrar solo para revisar
+      </label>
+      <label style="display: flex; align-items: center; cursor: pointer;">
+        <input type="checkbox" id="toggle-breakdown-cb" style="width: auto; margin-right: 5px;" checked>
+        Activar Desglose en Hover
       </label>
     </div>
     <p>La lista carga por defecto en modo "Mayorista". Usa los botones para recalcular según necesites.</p>
@@ -170,6 +202,11 @@
         supplierFilter.addEventListener('change', renderTable);
         productSearchFilter.addEventListener('input', renderTable);
         reviewFilter.addEventListener('change', renderTable);
+
+        // Add event listeners for the breakdown tooltip
+        tableBody.addEventListener('mouseover', handleMouseOver);
+        tableBody.addEventListener('mouseout', handleMouseOut);
+        tableBody.addEventListener('mousemove', handleMouseMove);
 
         renderTable();
         statusSpan.textContent = 'Listo para editar.';
@@ -298,6 +335,11 @@
         const row = document.createElement('tr');
         row.setAttribute('data-index', index);
 
+        // Store the breakdown data as a data attribute on the row
+        if (item.breakdown && item.breakdown.length > 0) {
+          row.setAttribute('data-breakdown', JSON.stringify(item.breakdown));
+        }
+
         let inventoryCellHtml;
         if (item.currentInventory < 0) {
           row.classList.add('negative-stock-error');
@@ -311,7 +353,7 @@
         }
 
         row.innerHTML = `
-          <td>${item.productName}</td>
+          <td class="product-base-cell">${item.productName}</td>
           ${inventoryCellHtml}
           <td>${item.totalNeed} ${item.unit}</td>
           <td><input type="number" class="quantity-input" value="${item.suggestedQty}" min="0" step="any"></td>
@@ -338,6 +380,70 @@
       return optionsArray.map(option =>
         `<option value="${option}" ${option === selectedValue ? 'selected' : ''}>${option}</option>`
       ).join('');
+    }
+
+    // --- Tooltip Handler Functions ---
+
+    function handleMouseOver(e) {
+        // Do nothing if the feature is disabled by the user
+        if (!document.getElementById('toggle-breakdown-cb').checked) {
+            const tooltip = document.getElementById('breakdown-tooltip');
+            if (tooltip) {
+                tooltip.style.display = 'none';
+            }
+            return;
+        }
+
+        // Only trigger if hovering over the specific product cell
+        if (e.target.classList.contains('product-base-cell')) {
+            const row = e.target.closest('tr');
+            if (!row) return;
+
+            const breakdownData = row.getAttribute('data-breakdown');
+            if (!breakdownData) return;
+
+            let tooltip = document.getElementById('breakdown-tooltip');
+            if (!tooltip) {
+                tooltip = document.createElement('div');
+                tooltip.id = 'breakdown-tooltip';
+                document.body.appendChild(tooltip);
+            }
+
+            try {
+                const breakdown = JSON.parse(breakdownData);
+                if (breakdown.length > 0) {
+                    let html = '<h4>Desglose de Necesidad</h4><ul>';
+                    breakdown.forEach(order => {
+                        html += `<li><b>${order.quantity} x ${order.productName}</b><br><small>(Pedido: ${order.orderId}, Cliente: ${order.customerName})</small></li>`;
+                    });
+                    html += '</ul>';
+                    tooltip.innerHTML = html;
+                    tooltip.className = 'breakdown-tooltip';
+                    tooltip.style.display = 'block';
+                }
+            } catch (err) {
+                console.error("Error parsing breakdown data:", err);
+                if(tooltip) tooltip.style.display = 'none';
+            }
+        }
+    }
+
+    function handleMouseOut(e) {
+        // Only hide the tooltip if leaving the specific product cell
+        if (e.target.classList.contains('product-base-cell')) {
+            const tooltip = document.getElementById('breakdown-tooltip');
+            if (tooltip) {
+                tooltip.style.display = 'none';
+            }
+        }
+    }
+
+    function handleMouseMove(e) {
+        const tooltip = document.getElementById('breakdown-tooltip');
+        if (tooltip && tooltip.style.display === 'block') {
+            tooltip.style.left = (e.pageX + 15) + 'px';
+            tooltip.style.top = (e.pageY + 15) + 'px';
+        }
     }
 
     saveBtn.addEventListener('click', function() {

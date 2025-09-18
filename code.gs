@@ -3244,17 +3244,55 @@ function getPurchaseDataMaps(skuSheet) {
 }
 
 function calculateBaseProductNeeds(ordersSheet, productToSkuMap) {
-  const orderData = ordersSheet.getRange("J2:K" + ordersSheet.getLastRow()).getValues();
+  // 1. Read data and get headers
+  const orderData = ordersSheet.getDataRange().getValues();
+  const headers = orderData.shift();
+  const idx = indexer(headers); // Use the robust indexer
+
+  const nameCol = idx.producto;
+  const qtyCol = idx.cantidad;
+  const orderIdCol = idx.numPedido;
+  const customerNameCol = idx.nombre;
+
+  // Check if essential columns exist
+  if (nameCol < 0 || qtyCol < 0 || orderIdCol < 0 || customerNameCol < 0) {
+      Logger.log("calculateBaseProductNeeds: Missing one or more required columns in 'Orders' sheet (Producto, Cantidad, Pedido, Nombre).");
+      // Return empty object to prevent further errors
+      return {};
+  }
+
   const baseProductNeeds = {};
-  orderData.forEach(([name, qty]) => {
+  // 2. Iterate over rows
+  orderData.forEach((row) => {
+    const name = row[nameCol];
+    const qty = row[qtyCol];
+    const orderId = row[orderIdCol];
+    const customerName = row[customerNameCol];
+
     if (name && qty && productToSkuMap[name]) {
       const skuInfo = productToSkuMap[name];
       const baseProduct = skuInfo.productoBase;
       const saleUnit = normalizeUnit(skuInfo.unidadVenta);
-      const totalSaleAmount = (parseInt(qty, 10) || 0) * skuInfo.cantidadVenta;
-      if (!baseProductNeeds[baseProduct]) baseProductNeeds[baseProduct] = {};
-      if (!baseProductNeeds[baseProduct][saleUnit]) baseProductNeeds[baseProduct][saleUnit] = 0;
-      baseProductNeeds[baseProduct][saleUnit] += totalSaleAmount;
+      const totalSaleAmount = (parseFloat(String(qty).replace(",", ".")) || 0) * skuInfo.cantidadVenta;
+
+      if (totalSaleAmount > 0) {
+          if (!baseProductNeeds[baseProduct]) {
+              baseProductNeeds[baseProduct] = {};
+          }
+          if (!baseProductNeeds[baseProduct][saleUnit]) {
+              baseProductNeeds[baseProduct][saleUnit] = {
+                  total: 0,
+                  breakdown: []
+              };
+          }
+          baseProductNeeds[baseProduct][saleUnit].total += totalSaleAmount;
+          baseProductNeeds[baseProduct][saleUnit].breakdown.push({
+              orderId: `#${orderId}`,
+              customerName: customerName,
+              quantity: qty, // The quantity of the *sale item*
+              productName: name // The name of the *sale item*
+          });
+      }
     }
   });
   return baseProductNeeds;
@@ -3327,13 +3365,16 @@ function createAcquisitionPlan(baseProductNeeds, baseProductPurchaseOptions, inv
 
   for (const baseProduct of sortedBaseProducts) {
     if (baseProductPurchaseOptions[baseProduct]) {
-      const needs = baseProductNeeds[baseProduct] || {};
+      const needsByUnit = baseProductNeeds[baseProduct] || {};
       const purchaseInfo = baseProductPurchaseOptions[baseProduct];
       const purchaseOptions = purchaseInfo.options.sort((a, b) => b.size - a.size);
 
       // Determine the unit of measurement. Fallback logic is important.
-      const needUnit = Object.keys(needs)[0] || purchaseOptions[0]?.unit || 'Unidad';
-      const totalNeed = needs[needUnit] || 0;
+      const needUnit = Object.keys(needsByUnit)[0] || purchaseOptions[0]?.unit || 'Unidad';
+
+      const needInfo = needsByUnit[needUnit] || { total: 0, breakdown: [] };
+      const totalNeed = needInfo.total;
+      const breakdown = needInfo.breakdown; // This is the new data
 
       const inventoryInfo = (inventoryMap && inventoryMap[baseProduct])
         ? inventoryMap[baseProduct]
@@ -3358,7 +3399,8 @@ function createAcquisitionPlan(baseProductNeeds, baseProductPurchaseOptions, inv
           purchaseOptions,
           purchaseOptions[0] || { name: 'Sin formato', size: 0, unit: needUnit }, // Default suggested format
           0, // Suggested quantity is 0
-          inventoryInfo
+          inventoryInfo,
+          breakdown
         ));
         continue; // Go to the next product
       }
@@ -3374,7 +3416,7 @@ function createAcquisitionPlan(baseProductNeeds, baseProductPurchaseOptions, inv
         if (smallestOption) {
           // Calcular cuántas unidades de este formato pequeño se necesitan para cubrir la necesidad neta.
           const numToBuy = Math.ceil(netNeed / smallestOption.size);
-          acquisitionPlan.push(createAcquisitionItem(baseProduct, totalNeed, needUnit, supplier, purchaseOptions, smallestOption, numToBuy, inventoryInfo));
+          acquisitionPlan.push(createAcquisitionItem(baseProduct, totalNeed, needUnit, supplier, purchaseOptions, smallestOption, numToBuy, inventoryInfo, breakdown));
         }
         // Si no se encuentra una opción de compra (caso raro), no se agrega nada al plan para este producto.
 
@@ -3385,7 +3427,7 @@ function createAcquisitionPlan(baseProductNeeds, baseProductPurchaseOptions, inv
 
         if (idealOption) {
           // Si se encuentra un formato ideal, comprar solo 1 de ese.
-          acquisitionPlan.push(createAcquisitionItem(baseProduct, totalNeed, needUnit, supplier, purchaseOptions, idealOption, 1, inventoryInfo));
+          acquisitionPlan.push(createAcquisitionItem(baseProduct, totalNeed, needUnit, supplier, purchaseOptions, idealOption, 1, inventoryInfo, breakdown));
         } else {
           // Si NINGÚN formato individualmente cubre la necesidad (ej: necesito 15kg, pero el formato más grande es de 12kg),
           // usar el formato más grande disponible y calcular cuántos se necesitan.
@@ -3393,7 +3435,7 @@ function createAcquisitionPlan(baseProductNeeds, baseProductPurchaseOptions, inv
           if (biggestOption && biggestOption.unit === needUnit) {
             const numToBuy = netNeed > 0 ? Math.ceil(netNeed / biggestOption.size) : 0;
             if (numToBuy > 0) {
-              acquisitionPlan.push(createAcquisitionItem(baseProduct, totalNeed, needUnit, supplier, purchaseOptions, biggestOption, numToBuy, inventoryInfo));
+              acquisitionPlan.push(createAcquisitionItem(baseProduct, totalNeed, needUnit, supplier, purchaseOptions, biggestOption, numToBuy, inventoryInfo, breakdown));
             }
           }
         }
@@ -3404,7 +3446,7 @@ function createAcquisitionPlan(baseProductNeeds, baseProductPurchaseOptions, inv
 }
 
 /** Helper para crear un item del plan de adquisición y evitar repetición de código. */
-function createAcquisitionItem(productName, totalNeed, unit, supplier, availableFormats, suggestedFormat, suggestedQty, inventoryInfo) {
+function createAcquisitionItem(productName, totalNeed, unit, supplier, availableFormats, suggestedFormat, suggestedQty, inventoryInfo, breakdown) {
   return {
     productName,
     totalNeed,
@@ -3415,7 +3457,8 @@ function createAcquisitionItem(productName, totalNeed, unit, supplier, available
     suggestedFormat,
     suggestedQty,
     currentInventory: inventoryInfo.quantity,
-    currentInventoryUnit: inventoryInfo.unit
+    currentInventoryUnit: inventoryInfo.unit,
+    breakdown: breakdown || [] // Add breakdown here
   };
 }
 
