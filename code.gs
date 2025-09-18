@@ -2640,47 +2640,10 @@ function getAcquisitionDataForEditor(mode = 'wholesale') {
     });
   }
 
-  // --- START MODIFICATION: Check if "Lista de Adquisiciones" is populated ---
-  const acquisitionsSheet = ss.getSheetByName("Lista de Adquisiciones");
-  const populatedAcquisitionsMap = new Map();
-  let isAcquisitionsSheetPopulated = false;
-
-  if (acquisitionsSheet && acquisitionsSheet.getLastRow() > 1) {
-      isAcquisitionsSheetPopulated = true;
-      const acquisitionsData = acquisitionsSheet.getRange(2, 1, acquisitionsSheet.getLastRow() - 1, acquisitionsSheet.getLastColumn()).getValues();
-      const headers = acquisitionsSheet.getRange(1, 1, 1, acquisitionsSheet.getLastColumn()).getValues()[0];
-      const productCol = headers.indexOf("Producto Base");
-      const qtyCol = headers.indexOf("Cantidad a Comprar");
-
-      if (productCol !== -1 && qtyCol !== -1) {
-          acquisitionsData.forEach(row => {
-              const productName = row[productCol];
-              const qty = parseFloat(String(row[qtyCol]).replace(",", ".")) || 0;
-              if (productName) {
-                  populatedAcquisitionsMap.set(normalizeKey(productName), qty);
-              }
-          });
-      }
-  }
-  // --- END MODIFICATION ---
-
   const inventoryMap = getCurrentInventory();
   const { productToSkuMap, baseProductPurchaseOptions } = getPurchaseDataMaps(skuSheet);
   const baseProductNeeds = calculateBaseProductNeeds(ordersSheet, productToSkuMap);
   const acquisitionPlan = createAcquisitionPlan(baseProductNeeds, baseProductPurchaseOptions, inventoryMap, mode);
-
-  // --- START MODIFICATION: Override suggested quantities if "Lista de Adquisiciones" is populated ---
-  if (isAcquisitionsSheetPopulated) {
-      acquisitionPlan.forEach(item => {
-          const key = normalizeKey(item.productName);
-          if (populatedAcquisitionsMap.has(key)) {
-              item.suggestedQty = populatedAcquisitionsMap.get(key);
-          } else {
-              item.suggestedQty = 0; // If not in the populated list, default to 0
-          }
-      });
-  }
-  // --- END MODIFICATION ---
 
   // Enriquecer plan con categorías
   let hasUncategorized = false;
