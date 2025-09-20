@@ -2780,6 +2780,84 @@ function clearAcquisitionList() {
   }
 }
 
+/**
+ * Adds a new SKU entry to the SKU sheet based on user input from the acquisitions dialog.
+ * @param {object} skuDetails The details for the new SKU.
+ * @returns {object} An object containing the new format details and updated lists for the client-side dropdown.
+ */
+function addNewSku(skuDetails) {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const skuSheet = ss.getSheetByName('SKU');
+    const proveedoresSheet = ss.getSheetByName('Proveedores');
+
+    if (!skuSheet) throw new Error("La hoja 'SKU' no fue encontrada.");
+
+    const { productBase, formatName, formatQuantity, formatUnit, supplier } = skuDetails;
+
+    // --- 1. Find existing data for consistency ---
+    const skuData = skuSheet.getDataRange().getValues();
+    const headers = skuData.shift(); // remove header
+    const baseProductCol = headers.indexOf('Producto Base');
+    const categoryCol = headers.indexOf('Categoría');
+    const saleQtyCol = headers.indexOf('Cantidad Venta');
+    const saleUnitCol = headers.indexOf('Unidad Venta');
+
+    let category = 'Sin Categoría';
+    let saleQty = 1;
+    let saleUnit = 'Unidad';
+
+    const existingRow = skuData.find(r => r[baseProductCol] === productBase);
+    if (existingRow) {
+      category = existingRow[categoryCol] || category;
+      saleQty = existingRow[saleQtyCol] || saleQty;
+      saleUnit = existingRow[saleUnitCol] || saleUnit;
+    }
+
+    // --- 2. Look up supplier phone ---
+    let phone = '';
+    if (proveedoresSheet && proveedoresSheet.getLastRow() > 1) {
+      const supplierData = proveedoresSheet.getRange(2, 1, proveedoresSheet.getLastRow() - 1, 2).getValues();
+      const supplierRow = supplierData.find(r => r[0] === supplier);
+      if (supplierRow) {
+        phone = supplierRow[1] || '';
+      }
+    }
+
+    // --- 3. Construct new SKU row ---
+    const newSkuName = `${productBase} ${formatName} ${formatQuantity} ${formatUnit}`;
+    const newRow = [
+      newSkuName, productBase, formatName, formatQuantity, formatUnit,
+      category, saleQty, saleUnit, supplier, phone
+    ];
+
+    // --- 4. Append to sheet ---
+    skuSheet.appendRow(newRow);
+    SpreadsheetApp.flush(); // Ensure data is written before re-reading
+
+    // --- 5. Get updated formats to return to client ---
+    const { baseProductPurchaseOptions } = getPurchaseDataMaps(skuSheet);
+    const normalizedKey = normalizeKey(productBase);
+    const purchaseOptions = baseProductPurchaseOptions[normalizedKey] || { options: [] };
+
+    const allFormatObjects = purchaseOptions.options.map(f => ({ name: f.name, size: f.size, unit: f.unit }));
+    const allFormatStrings = allFormatObjects.map(f => `${f.name} (${f.size} ${f.unit})`);
+
+    const newFormatString = `${formatName} (${formatQuantity} ${formatUnit})`;
+
+    return {
+      status: 'success',
+      newFormatString: newFormatString,
+      allFormatObjects: allFormatObjects,
+      allFormatStrings: allFormatStrings
+    };
+
+  } catch (e) {
+    Logger.log(`Error en addNewSku: ${e.stack}`);
+    throw new Error(`Ocurrió un error al agregar el SKU: ${e.message}`);
+  }
+}
+
 function generateAcquisitionDRAFT() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const ordersSheet = ss.getSheetByName('Orders');

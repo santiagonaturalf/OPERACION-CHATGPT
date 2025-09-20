@@ -93,6 +93,20 @@
     .breakdown-tooltip li {
         margin-bottom: 5px;
     }
+    .add-format-btn {
+      padding: 4px 9px;
+      font-size: 14px;
+      font-weight: bold;
+      line-height: 1;
+      cursor: pointer;
+      border: 1px solid #ccc;
+      background-color: #f0f0f0;
+      border-radius: 4px;
+      flex-shrink: 0; /* Prevents the button from shrinking */
+    }
+    .add-format-btn:hover {
+      background-color: #e0e0e0;
+    }
   </style>
 </head>
 <body>
@@ -236,6 +250,17 @@
           }
         });
 
+        tableBody.addEventListener('click', function(e) {
+          if (e.target.classList.contains('add-format-btn')) {
+            e.preventDefault(); // Prevent any default button action
+            const row = e.target.closest('tr');
+            if (!row) return;
+            const index = parseInt(row.getAttribute('data-index'), 10);
+            const productBase = planData[index].productName;
+            handleAddNewFormat(productBase, index);
+          }
+        });
+
         // --- DYNAMIC PADDING ADJUSTMENT ---
         const container = document.querySelector('.container');
         const footer = document.querySelector('.footer-actions');
@@ -357,7 +382,12 @@
           ${inventoryCellHtml}
           <td>${item.totalNeed} ${item.unit}</td>
           <td><input type="number" class="quantity-input" value="${item.suggestedQty}" min="0" step="any"></td>
-          <td><select class="format-select">${createOptions(item.allFormatStrings, item.selectedFormatString)}</select></td>
+          <td>
+            <div style="display: flex; align-items: center; gap: 4px;">
+              <select class="format-select" style="width: auto; flex-grow: 1;">${createOptions(item.allFormatStrings, item.selectedFormatString)}</select>
+              <button type="button" class="add-format-btn" title="Crear nuevo formato de compra para este producto" data-product-base="${item.productName}">+</button>
+            </div>
+          </td>
           <td><select class="supplier-select">${createOptions(allSuppliers, item.supplier)}</select></td>
           <td class="final-inventory"></td>
         `;
@@ -374,6 +404,127 @@
       }
 
       notNeededItems.forEach(renderItem);
+    }
+
+    function handleAddNewFormat(productBase, index) {
+      // Prevent multiple modals from opening
+      if (document.getElementById('add-format-modal-overlay')) return;
+
+      // 1. Create modal structure
+      const modalOverlay = document.createElement('div');
+      modalOverlay.id = 'add-format-modal-overlay';
+      Object.assign(modalOverlay.style, {
+        position: 'fixed', top: 0, left: 0, width: '100%', height: '100%',
+        backgroundColor: 'rgba(0, 0, 0, 0.6)', zIndex: 1001,
+        display: 'flex', justifyContent: 'center', alignItems: 'center'
+      });
+
+      const modalContent = document.createElement('div');
+      Object.assign(modalContent.style, {
+        background: 'white', padding: '25px', borderRadius: '8px',
+        boxShadow: '0 5px 15px rgba(0,0,0,0.3)', width: '400px'
+      });
+
+      // 2. Create form elements using existing `allSuppliers` variable
+      const supplierOptions = allSuppliers.map(s => `<option value="${s}">${s}</option>`).join('');
+
+      modalContent.innerHTML = `
+        <h3 style="margin-top: 0; border-bottom: 1px solid #eee; padding-bottom: 10px;">Añadir Nuevo Formato de Compra</h3>
+        <p>Para el producto base: <strong>${productBase}</strong></p>
+        <div style="display: flex; flex-direction: column; gap: 15px;">
+          <label>Nombre del Formato (ej. Caja, Saco):
+            <input type="text" id="new-format-name" style="width: 95%; padding: 8px; font-size: 14px; border-radius: 4px; border: 1px solid #ccc;" required>
+          </label>
+          <label>Cantidad Compra (ej. 12, 25):
+            <input type="number" id="new-format-quantity" style="width: 95%; padding: 8px; font-size: 14px; border-radius: 4px; border: 1px solid #ccc;" required step="any">
+          </label>
+          <label>Unidad Compra (ej. Kg, Litro, Unidad):
+            <input type="text" id="new-format-unit" style="width: 95%; padding: 8px; font-size: 14px; border-radius: 4px; border: 1px solid #ccc;" required list="unit-suggestions">
+            <datalist id="unit-suggestions">
+              <option value="Kg"></option><option value="Gr"></option><option value="Litro"></option><option value="Unidad"></option><option value="Bandeja"></option>
+            </datalist>
+          </label>
+          <label>Proveedor:
+            <select id="new-format-supplier" style="width: 100%; padding: 8px; font-size: 14px; border-radius: 4px; border: 1px solid #ccc;">
+              ${supplierOptions}
+            </select>
+          </label>
+        </div>
+        <div style="margin-top: 25px; text-align: right; display: flex; gap: 10px; justify-content: flex-end;">
+          <button type="button" id="cancel-new-format-btn" class="button">Cancelar</button>
+          <button type="button" id="save-new-format-btn" class="button" style="background-color: #1877f2; color: white;">Guardar Formato</button>
+        </div>
+      `;
+
+      // 3. Append to body and add event listeners
+      modalOverlay.appendChild(modalContent);
+      document.body.appendChild(modalOverlay);
+      document.getElementById('new-format-name').focus();
+
+      const closeModal = () => {
+        if (document.body.contains(modalOverlay)) {
+          document.body.removeChild(modalOverlay);
+        }
+      };
+
+      document.getElementById('cancel-new-format-btn').addEventListener('click', closeModal);
+      modalOverlay.addEventListener('click', (e) => {
+        if (e.target === modalOverlay) closeModal();
+      });
+
+      document.getElementById('save-new-format-btn').addEventListener('click', () => {
+        // 4. Collect data from the form
+        const newFormatData = {
+          productBase: productBase,
+          rowIndex: index, // Pass the index to know which row to update later
+          formatName: document.getElementById('new-format-name').value.trim(),
+          formatQuantity: parseFloat(document.getElementById('new-format-quantity').value),
+          formatUnit: document.getElementById('new-format-unit').value.trim(),
+          supplier: document.getElementById('new-format-supplier').value
+        };
+
+        // 5. Basic validation
+        if (!newFormatData.formatName || isNaN(newFormatData.formatQuantity) || newFormatData.formatQuantity <= 0 || !newFormatData.formatUnit) {
+          alert('Por favor, complete todos los campos del formato correctamente.');
+          return;
+        }
+
+        const saveBtn = document.getElementById('save-new-format-btn');
+        saveBtn.textContent = 'Guardando...';
+        saveBtn.disabled = true;
+
+        // 6. Call the server-side function
+        google.script.run
+          .withSuccessHandler(function(response) {
+            if (response.status === 'success') {
+              const item = planData[newFormatData.rowIndex];
+              item.allFormatObjects = response.allFormatObjects;
+              item.allFormatStrings = response.allFormatStrings;
+              item.selectedFormatString = response.newFormatString;
+
+              const row = tableBody.querySelector(`tr[data-index="${newFormatData.rowIndex}"]`);
+              if (row) {
+                 const formatCell = row.cells[4]; // 5th cell is "Formato de Compra"
+                 formatCell.innerHTML = `
+                  <div style="display: flex; align-items: center; gap: 4px;">
+                    <select class="format-select" style="width: auto; flex-grow: 1;">
+                      ${createOptions(item.allFormatStrings, item.selectedFormatString)}
+                    </select>
+                    <button type="button" class="add-format-btn" title="Crear nuevo formato de compra para este producto" data-product-base="${item.productName}">+</button>
+                  </div>`;
+              }
+              closeModal();
+            } else {
+              throw new Error(response.message || 'Ocurrió un error inesperado en el servidor.');
+            }
+          })
+          .withFailureHandler(function(error) {
+            alert('Error al guardar el formato: ' + error.message);
+            saveBtn.textContent = 'Guardar Formato';
+            saveBtn.disabled = false;
+          })
+          .addNewSku(newFormatData);
+      });
     }
 
     function createOptions(optionsArray, selectedValue) {
