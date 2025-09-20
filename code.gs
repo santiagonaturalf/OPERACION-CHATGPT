@@ -3190,11 +3190,14 @@ function getPurchaseDataMaps(skuSheet) {
     const normalizedProductoBase = normalizeKey(productoBase);
 
     if (nombreProducto) {
-      productToSkuMap[nombreProducto] = {
+      if (!productToSkuMap[nombreProducto]) {
+        productToSkuMap[nombreProducto] = [];
+      }
+      productToSkuMap[nombreProducto].push({
         productoBase: normalizedProductoBase, // Use the normalized key
         cantidadVenta: parseFloat(String(cantVenta).replace(',', '.')) || 0,
         unidadVenta: normalizeUnit(unidadVenta)
-      };
+      });
     }
 
     if (unidadVenta) {
@@ -3270,28 +3273,32 @@ function calculateBaseProductNeeds(ordersSheet, productToSkuMap) {
     const customerName = row[customerNameCol];
 
     if (name && qty && productToSkuMap[name]) {
-      const skuInfo = productToSkuMap[name];
-      const baseProduct = skuInfo.productoBase;
-      const saleUnit = normalizeUnit(skuInfo.unidadVenta);
-      const totalSaleAmount = (parseFloat(String(qty).replace(",", ".")) || 0) * skuInfo.cantidadVenta;
+      const skuInfoArray = productToSkuMap[name];
+      if (Array.isArray(skuInfoArray)) {
+        skuInfoArray.forEach(skuInfo => {
+          const baseProduct = skuInfo.productoBase;
+          const saleUnit = normalizeUnit(skuInfo.unidadVenta);
+          const totalSaleAmount = (parseFloat(String(qty).replace(",", ".")) || 0) * skuInfo.cantidadVenta;
 
-      if (totalSaleAmount > 0) {
-          if (!baseProductNeeds[baseProduct]) {
-              baseProductNeeds[baseProduct] = {};
+          if (totalSaleAmount > 0) {
+              if (!baseProductNeeds[baseProduct]) {
+                  baseProductNeeds[baseProduct] = {};
+              }
+              if (!baseProductNeeds[baseProduct][saleUnit]) {
+                  baseProductNeeds[baseProduct][saleUnit] = {
+                      total: 0,
+                      breakdown: []
+                  };
+              }
+              baseProductNeeds[baseProduct][saleUnit].total += totalSaleAmount;
+              baseProductNeeds[baseProduct][saleUnit].breakdown.push({
+                  orderId: `#${orderId}`,
+                  customerName: customerName,
+                  quantity: qty, // The quantity of the *sale item*
+                  productName: name // The name of the *sale item*
+              });
           }
-          if (!baseProductNeeds[baseProduct][saleUnit]) {
-              baseProductNeeds[baseProduct][saleUnit] = {
-                  total: 0,
-                  breakdown: []
-              };
-          }
-          baseProductNeeds[baseProduct][saleUnit].total += totalSaleAmount;
-          baseProductNeeds[baseProduct][saleUnit].breakdown.push({
-              orderId: `#${orderId}`,
-              customerName: customerName,
-              quantity: qty, // The quantity of the *sale item*
-              productName: name // The name of the *sale item*
-          });
+        });
       }
     }
   });
@@ -3331,19 +3338,23 @@ function calculateNeedsForStatus(statusToProcess) {
       const qty = row[qtyColIdx];
 
       if (name && qty && productToSkuMap[name]) {
-        const skuInfo = productToSkuMap[name];
-        const baseProduct = skuInfo.productoBase;
-        const saleUnit = normalizeUnit(skuInfo.unidadVenta);
-        const totalSaleAmount = (parseFloat(String(qty).replace(",", ".")) || 0) * skuInfo.cantidadVenta;
+        const skuInfoArray = productToSkuMap[name];
+        if (Array.isArray(skuInfoArray)) {
+          skuInfoArray.forEach(skuInfo => {
+            const baseProduct = skuInfo.productoBase;
+            const saleUnit = normalizeUnit(skuInfo.unidadVenta);
+            const totalSaleAmount = (parseFloat(String(qty).replace(",", ".")) || 0) * skuInfo.cantidadVenta;
 
-        if (totalSaleAmount > 0) {
-            if (!baseProductNeeds[baseProduct]) {
-              baseProductNeeds[baseProduct] = {};
+            if (totalSaleAmount > 0) {
+                if (!baseProductNeeds[baseProduct]) {
+                  baseProductNeeds[baseProduct] = {};
+                }
+                if (!baseProductNeeds[baseProduct][saleUnit]) {
+                  baseProductNeeds[baseProduct][saleUnit] = 0;
+                }
+                baseProductNeeds[baseProduct][saleUnit] += totalSaleAmount;
             }
-            if (!baseProductNeeds[baseProduct][saleUnit]) {
-              baseProductNeeds[baseProduct][saleUnit] = 0;
-            }
-            baseProductNeeds[baseProduct][saleUnit] += totalSaleAmount;
+          });
         }
       }
     }
