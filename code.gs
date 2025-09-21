@@ -3569,6 +3569,30 @@ function groupPlanBySupplier(acquisitionPlan) {
 }
 
 /**
+ * Normalizes a phone number to a 9-digit Chilean mobile number.
+ * Extracts the first valid 9-digit number starting with '9'.
+ * e.g., '=+56982308873123' becomes '982308873'.
+ * @param {string|number} phone The phone number to normalize.
+ * @returns {string} The normalized 9-digit phone number.
+ */
+function normalizePhoneTo9Digits(phone) {
+  if (!phone || typeof phone.toString !== 'function') {
+    return ''; // Return empty string for invalid input
+  }
+  // 1. Convert to string and remove all non-numeric characters.
+  const digits = phone.toString().replace(/\D/g, '');
+
+  // 2. Find the first occurrence of a 9-digit number starting with 9.
+  const match = digits.match(/(9\d{8})/);
+  if (match && match[1]) {
+    return match[1];
+  }
+
+  // 3. Fallback for numbers that might be valid but don't match the regex (e.g. shorter)
+  return digits;
+}
+
+/**
  * Normaliza una cadena para ser usada como clave (lowercase, trim).
  * @param {string} str La cadena a normalizar.
  * @returns {string} La cadena normalizada.
@@ -3632,11 +3656,21 @@ function importOrdersFromPastedText(textData) {
     const columnIndexMap = normalizedTargetHeaders.map(targetHeader => sourceHeaders.indexOf(targetHeader));
 
     // 3. Reordenar los datos
+    // Get the index of the phone column in the TARGET sheet.
+    const phoneColIdx = normalizedTargetHeaders.indexOf('phone');
+
+    // 3. Reordenar los datos
     const reorderedData = sourceData.map(sourceRow => {
         const newRow = [];
         columnIndexMap.forEach((sourceIndex, targetIndex) => {
             newRow[targetIndex] = (sourceIndex !== -1) ? sourceRow[sourceIndex] : "";
         });
+
+        // Normalize the phone number if the column exists.
+        if (phoneColIdx !== -1 && newRow[phoneColIdx]) {
+            newRow[phoneColIdx] = normalizePhoneTo9Digits(newRow[phoneColIdx]);
+        }
+
         return newRow;
     });
 
@@ -3801,6 +3835,7 @@ function normalizeHeader(header) {
     const normalized = header.toString().toLowerCase().trim().replace(/:/g, '');
 
     const mappings = {
+        'teléfono': 'phone',
         'número de pedido': 'order #',
         'nombre completo': 'nombre y apellido',
         'cantidad': 'item quantity',
