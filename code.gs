@@ -672,29 +672,9 @@ function generatePrintableRouteSheets(vanName) {
   };
 }
 
-function cleanupRouteSheets() {
-  try {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const allSheets = ss.getSheets();
-    let deletedCount = 0;
-
-    allSheets.forEach(sheet => {
-      const sheetName = sheet.getName();
-      if (sheetName.startsWith('Ruta Optimizada -') || sheetName.startsWith('Orden de Envasado -') || sheetName.startsWith('Orden de Carga -')) {
-        ss.deleteSheet(sheet);
-        deletedCount++;
-      }
-    });
-
-    return { status: 'success', message: `Limpieza completada. Se eliminaron ${deletedCount} hojas.` };
-  } catch (e) {
-    Logger.log(e);
-    return { status: 'error', message: e.toString() };
-  }
-}
 
 /**
- * Elimina todas las hojas de "Lista de Envasado" y "Extraccion" de sesiones anteriores.
+ * Elimina todas las hojas de "Lista de Envasado", "Extraccion", "Ruta" y "Orden de Envasado" de sesiones anteriores.
  */
 function cleanPreviousSession() {
   try {
@@ -704,7 +684,11 @@ function cleanPreviousSession() {
 
     allSheets.forEach(sheet => {
       const sheetName = sheet.getName();
-      if (sheetName.startsWith('Lista de Envasado') || sheetName.startsWith('Extraccion')) {
+      if (sheetName.startsWith('Lista de Envasado') ||
+          sheetName.startsWith('Extraccion') ||
+          sheetName.startsWith('Ruta') ||
+          sheetName.startsWith('Orden de Envasado') ||
+          sheetName.startsWith('Orden de Carga')) {
         ss.deleteSheet(sheet);
         deletedCount++;
       }
@@ -713,7 +697,7 @@ function cleanPreviousSession() {
     if (deletedCount > 0) {
       return `Limpieza completada. Se eliminaron ${deletedCount} hoja(s) de la sesión anterior.`;
     } else {
-      return 'No se encontraron hojas de "Lista de Envasado" o "Extraccion" para eliminar.';
+      return 'No se encontraron hojas de sesiones anteriores para eliminar.';
     }
   } catch (e) {
     Logger.log(`Error en cleanPreviousSession: ${e.stack}`);

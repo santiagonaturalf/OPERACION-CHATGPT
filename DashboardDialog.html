@@ -384,7 +384,7 @@
     document.getElementById('paste-import-btn').addEventListener('click', () => google.script.run.showPasteImportDialog());
 
     document.getElementById('clean-session-btn').addEventListener('click', () => {
-        const confirmed = confirm('¿Estás seguro de que quieres eliminar TODAS las hojas de "Lista de Envasado" y "Extraccion"? Esta acción no se puede deshacer.');
+        const confirmed = confirm('¿Estás seguro de que quieres eliminar TODAS las hojas de "Lista de Envasado", "Extraccion", "Ruta", "Orden de Envasado" y "Orden de Carga"? Esta acción no se puede deshacer.');
         if (confirmed) {
             setLoadingState(true, 'Limpiando hojas de la sesión anterior...');
             google.script.run.withSuccessHandler(handleSuccess).withFailureHandler(handleError).cleanPreviousSession();
