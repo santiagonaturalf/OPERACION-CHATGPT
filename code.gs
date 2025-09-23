@@ -14,6 +14,7 @@ function onOpen() {
     .addItem('🚀 Abrir Dashboard de Operaciones', 'showDashboard')
     .addSeparator()
     .addItem('📝 Generar Adquisiciones', 'showAcquisitionEditor')
+    .addItem('📊 Generar Adquisiciones 2do Tiempo', 'generateSecondTimeAcquisitionList')
     .addItem('🚚 Comanda Rutas', 'showComandaRutasDialog')
     .addItem('💬 Panel de Notificaciones (nuevo)', 'openNotificationPanel')
     .addSeparator()
@@ -36,6 +37,137 @@ function onEdit(e) {
   const col = range.getColumn();
   if (sheetName === "Lista de Adquisiciones" && row > 1 && (col === 2 || col === 3)) {
     recalculateRowInventory(sheet, row);
+  }
+}
+
+/**
+ * Generates a new sheet "Lista Adquisiciones 2do Tiempo" with the acquisition
+ * plan for the latest "extra time" orders.
+ */
+function generateSecondTimeAcquisitionList() {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+
+    // 1. Find the status to process
+    const statusToProcess = findLatestExtraTimeStatus_();
+
+    if (!statusToProcess) {
+      SpreadsheetApp.getUi().alert("No se encontraron pedidos de '2do tiempo' o posteriores para procesar.");
+      return;
+    }
+
+    // 2. Calculate sales needs
+    const productNeeds = calculateNeedsForStatus(statusToProcess);
+    if (Object.keys(productNeeds).length === 0) {
+      SpreadsheetApp.getUi().alert(`No se encontraron productos para el estado '${statusToProcess}'.`);
+      return;
+    }
+
+    // 3. Get initial inventory from the main acquisition list's final state
+    const firstAcquisitionState = getAcquisitionListState();
+
+    // 4. Get SKU and supplier data
+    const skuSheet = ss.getSheetByName('SKU');
+    if (!skuSheet) throw new Error("No se encontró la hoja 'SKU'.");
+    const { baseProductPurchaseOptions } = getPurchaseDataMaps(skuSheet);
+    const latestSuppliers = getLatestSuppliersFromHistory();
+
+    // 5. Create or clear the target sheet
+    const sheetName = "Lista Adquisiciones 2do Tiempo";
+    let newSheet = ss.getSheetByName(sheetName);
+    if (newSheet) {
+      newSheet.clear();
+    } else {
+      newSheet = ss.insertSheet(sheetName);
+    }
+
+    // 6. Set headers
+    const headers = ["Producto Base", "Cantidad a Comprar", "Formato de Compra", "Inventario Actual", "Unidad Inventario Actual", "Necesidad de Venta", "Unidad Venta", "Inventario al Finalizar", "Unidad Inventario Final", "Precio Adq. Anterior", "Precio Adq. HOY", "Proveedor", "Aprobado"];
+    newSheet.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight("bold");
+    newSheet.setFrozenRows(1);
+
+    // Set column colors like the main sheet
+    newSheet.getRange("A1:C1").setBackground("#d9ead3");
+    newSheet.getRange("D1:E1").setBackground("#fff2cc");
+    newSheet.getRange("F1:K1").setBackground("#f4cccc");
+    newSheet.getRange("L1").setBackground("#d9d9d9");
+    newSheet.getRange("M1").setBackground("#c9daf8");
+
+
+    // 7. Build rows for the new sheet
+    const rowsToAdd = [];
+    const sortedBaseProducts = Object.keys(productNeeds).sort();
+
+    for (const baseProduct of sortedBaseProducts) {
+      const normalizedBaseProduct = normalizeKey(baseProduct);
+      const needsByUnit = productNeeds[baseProduct];
+
+      for (const unit in needsByUnit) {
+        const neededQty = needsByUnit[unit];
+        const initialInventory = firstAcquisitionState[normalizedBaseProduct] ? firstAcquisitionState[normalizedBaseProduct].invFinalizar : 0;
+        const shortfall = neededQty - initialInventory;
+
+        let qtyToBuy = 0;
+        let purchaseFormat = '';
+        let purchasedAmount = 0;
+
+        const purchaseOptionsInfo = baseProductPurchaseOptions[normalizedBaseProduct];
+
+        if (shortfall > 0 && purchaseOptionsInfo) {
+          const purchaseOptions = purchaseOptionsInfo.options.sort((a, b) => b.size - a.size);
+          const idealOption = purchaseOptions.slice().reverse().find(o => o.size >= shortfall && o.unit === unit);
+          let selectedFormat = null;
+
+          if (idealOption) {
+            selectedFormat = idealOption;
+            qtyToBuy = 1;
+          } else {
+            const biggestOption = purchaseOptions.find(o => o.unit === unit); // Find biggest for the correct unit
+            if (biggestOption) {
+              selectedFormat = biggestOption;
+              qtyToBuy = Math.ceil(shortfall / biggestOption.size);
+            }
+          }
+
+          if (selectedFormat) {
+            purchaseFormat = `${selectedFormat.name} (${selectedFormat.size} ${selectedFormat.unit})`;
+            purchasedAmount = qtyToBuy * selectedFormat.size;
+          }
+        }
+
+        const finalInventory = initialInventory + purchasedAmount - neededQty;
+        const supplier = getBestSupplier(purchaseOptionsInfo, latestSuppliers[normalizedBaseProduct]);
+
+        const rowData = [
+          baseProduct,
+          qtyToBuy,
+          purchaseFormat,
+          initialInventory,
+          unit,
+          neededQty,
+          unit,
+          finalInventory,
+          unit,
+          "", "", // Prices
+          supplier,
+          false // Approved
+        ];
+        rowsToAdd.push(rowData);
+      }
+    }
+
+    // 8. Write data to the sheet
+    if (rowsToAdd.length > 0) {
+      newSheet.getRange(2, 1, rowsToAdd.length, headers.length).setValues(rowsToAdd);
+      newSheet.autoResizeColumns(1, headers.length);
+    }
+
+    SpreadsheetApp.getUi().alert(`Se ha generado la hoja "${sheetName}" con ${rowsToAdd.length} productos.`);
+
+  } catch (e) {
+    Logger.log(`Error in generateSecondTimeAcquisitionList: ${e.stack}`);
+    SpreadsheetApp.getUi().alert(`Ocurrió un error al generar la lista: ${e.message}`);
+    // No re-throw to avoid breaking the menu for the user.
   }
 }
 
@@ -3250,6 +3382,49 @@ function getLatestSuppliersFromHistory() {
 
 
 // --- FUNCIONES AUXILIARES ---
+
+/**
+ * Finds the highest "tiempo" status string from the Orders sheet.
+ * E.g., if "2do Tiempo" and "3er Tiempo" exist, it returns the full status
+ * string for the 3rd time.
+ * @returns {string|null} The status string or null if not found.
+ * @private
+ */
+function findLatestExtraTimeStatus_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ordersSheet = ss.getSheetByName('Orders');
+  if (!ordersSheet) return null;
+
+  const headers = ordersSheet.getRange(1, 1, 1, ordersSheet.getLastColumn()).getValues()[0];
+  const statusColIndex = headers.indexOf("Estado");
+  if (statusColIndex === -1) return null;
+
+  const lastRow = ordersSheet.getLastRow();
+  if (lastRow < 2) return null;
+
+  let highestTiempo = 0;
+  let statusToProcess = '';
+
+  const statusData = ordersSheet.getRange(2, statusColIndex + 1, lastRow - 1, 1).getValues();
+  statusData.forEach(row => {
+    const status = row[0];
+    if (typeof status === 'string' && status.includes('Aprobado y Agregado en')) {
+      let tiempoNum = 0;
+      if (status.includes('Segundo') || status.includes('2do')) tiempoNum = 2;
+      else if (status.includes('Tercer') || status.includes('3er')) tiempoNum = 3;
+      else {
+          const match = status.match(/(\d+)/);
+          if (match && match[1]) tiempoNum = parseInt(match[1], 10);
+      }
+      if (tiempoNum > highestTiempo) {
+          highestTiempo = tiempoNum;
+          statusToProcess = status;
+      }
+    }
+  });
+
+  return statusToProcess || null;
+}
 
 
 function parseDDMMYYYY(dateString) {
