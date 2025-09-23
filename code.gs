@@ -4276,11 +4276,19 @@ function api_buildWhatsappLink(rawPhone, supplierName, items) {
   const intro = '¡Hola! Te envío nuestro pedido para hoy:';
   const lines = items.map(i=>{
     const qty = Math.max(1, parseInt(i.qty,10)||1);
-    const pres = i.presentation ? `, ${i.presentation}` : '';
-    return `- *${qty}* ${i.name}${pres}`;
+    let pres = '';
+    if (i.presentation) {
+      const match = i.presentation.match(/\(.*\)/);
+      if (match && match[0]) {
+        pres = `, formato envase de ${match[0]}`;
+      } else {
+        pres = `, formato envase de (${i.presentation})`;
+      }
+    }
+    return `• ${qty} ${i.name}${pres}`;
   });
 
-  const text = [intro, ...lines, '', '¡Gracias!'].join('\n');
+  const text = [intro, '', ...lines, '', '¡Gracias!'].join('\n');
   const url  = `https://api.whatsapp.com/send/?phone=${encodeURIComponent(phone)}&text=${encodeURIComponent(text)}`;
   return url;
 }
