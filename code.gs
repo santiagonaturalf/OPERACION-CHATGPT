@@ -2617,9 +2617,11 @@ function getAcquisitionDataForEditor(mode = 'load_existing') {
 function loadAcquisitionDataFromSheet(ss, acquisitionSheet) {
   const skuSheet = ss.getSheetByName('SKU');
   const proveedoresSheet = ss.getSheetByName('Proveedores');
+  const ordersSheet = ss.getSheetByName('Orders');
 
-  // 1. Get all possible purchase formats and categories from SKU sheet
-  const { baseProductPurchaseOptions } = getPurchaseDataMaps(skuSheet);
+  // 1. Get all possible purchase formats, categories, and breakdown data
+  const { productToSkuMap, baseProductPurchaseOptions } = getPurchaseDataMaps(skuSheet);
+  const baseProductNeeds = calculateBaseProductNeeds(ordersSheet, productToSkuMap); // Recalculate needs to get breakdown
   const baseToCategory = new Map();
   const allCategoriesSet = new Set();
   if (skuSheet.getLastRow() > 1) {
@@ -2654,6 +2656,11 @@ function loadAcquisitionDataFromSheet(ss, acquisitionSheet) {
     const purchaseOptions = baseProductPurchaseOptions[normalizedKey] || { options: [] };
     const availableFormats = purchaseOptions.options;
 
+    // Get the breakdown for the current product
+    const needsByUnit = baseProductNeeds[normalizedKey] || {};
+    const unit = row[needUnitCol] || 'Unidad';
+    const breakdown = needsByUnit[unit] ? needsByUnit[unit].breakdown : [];
+
     return {
       productName: productName,
       suggestedQty: row[qtyCol],
@@ -2661,15 +2668,15 @@ function loadAcquisitionDataFromSheet(ss, acquisitionSheet) {
       currentInventory: row[invActualCol],
       currentInventoryUnit: row[invActualUnitCol],
       totalNeed: row[needCol],
-      unit: row[needUnitCol],
+      unit: unit,
       supplier: row[supplierCol],
       approved: row[approvedCol] || false,
       category: baseToCategory.get(normalizedKey) || 'Sin Categoría',
 
-      // Reconstruct data needed for the client-side that isn't stored on the sheet
+      // Reconstruct data needed for the client-side
       availableFormats: availableFormats,
       suggestedFormat: availableFormats.find(f => `${f.name} (${f.size} ${f.unit})` === row[formatCol]) || availableFormats[0] || {},
-      breakdown: [] // Breakdown is not persisted, so it's empty when loading from sheet
+      breakdown: breakdown // Add the recalculated breakdown
     };
   });
 
