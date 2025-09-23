@@ -2599,7 +2599,97 @@ function updateAcquisitionListAutomated() {
   }
 }
 
-function getAcquisitionDataForEditor(mode = 'wholesale') {
+function getAcquisitionDataForEditor(mode = 'load_existing') {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const acquisitionSheet = ss.getSheetByName("Lista de Adquisiciones");
+
+  // If mode is 'load_existing' and the sheet has data, load from it.
+  if (mode === 'load_existing' && acquisitionSheet && acquisitionSheet.getLastRow() > 1) {
+    Logger.log("Loading existing acquisition data from sheet.");
+    return loadAcquisitionDataFromSheet(ss, acquisitionSheet);
+  } else {
+    // Otherwise, calculate a new plan. This happens on first run or when a recalculation button is clicked.
+    Logger.log(`Calculating new acquisition plan with mode: ${mode}`);
+    return calculateNewAcquisitionPlan(mode);
+  }
+}
+
+function loadAcquisitionDataFromSheet(ss, acquisitionSheet) {
+  const skuSheet = ss.getSheetByName('SKU');
+  const proveedoresSheet = ss.getSheetByName('Proveedores');
+
+  // 1. Get all possible purchase formats and categories from SKU sheet
+  const { baseProductPurchaseOptions } = getPurchaseDataMaps(skuSheet);
+  const baseToCategory = new Map();
+  const allCategoriesSet = new Set();
+  if (skuSheet.getLastRow() > 1) {
+    const skuCategoryData = skuSheet.getRange("B2:F" + skuSheet.getLastRow()).getValues();
+    skuCategoryData.forEach(row => {
+      const baseProduct = row[0]; const category = row[4];
+      if (baseProduct && category) {
+        baseToCategory.set(normalizeKey(baseProduct), category);
+        allCategoriesSet.add(category);
+      }
+    });
+  }
+
+  // 2. Read the existing acquisition list
+  const headers = acquisitionSheet.getRange(1, 1, 1, acquisitionSheet.getLastColumn()).getValues()[0];
+  const data = acquisitionSheet.getRange(2, 1, acquisitionSheet.getLastRow() - 1, headers.length).getValues();
+
+  const productCol = headers.indexOf("Producto Base");
+  const qtyCol = headers.indexOf("Cantidad a Comprar");
+  const formatCol = headers.indexOf("Formato de Compra");
+  const invActualCol = headers.indexOf("Inventario Actual");
+  const invActualUnitCol = headers.indexOf("Unidad Inventario Actual");
+  const needCol = headers.indexOf("Necesidad de Venta");
+  const needUnitCol = headers.indexOf("Unidad Venta");
+  const supplierCol = headers.indexOf("Proveedor");
+  const approvedCol = headers.indexOf("Aprobado");
+
+  const acquisitionPlan = data.map(row => {
+    const productName = row[productCol];
+    const normalizedKey = normalizeKey(productName);
+
+    const purchaseOptions = baseProductPurchaseOptions[normalizedKey] || { options: [] };
+    const availableFormats = purchaseOptions.options;
+
+    return {
+      productName: productName,
+      suggestedQty: row[qtyCol],
+      selectedFormatString: row[formatCol],
+      currentInventory: row[invActualCol],
+      currentInventoryUnit: row[invActualUnitCol],
+      totalNeed: row[needCol],
+      unit: row[needUnitCol],
+      supplier: row[supplierCol],
+      approved: row[approvedCol] || false,
+      category: baseToCategory.get(normalizedKey) || 'Sin Categoría',
+
+      // Reconstruct data needed for the client-side that isn't stored on the sheet
+      availableFormats: availableFormats,
+      suggestedFormat: availableFormats.find(f => `${f.name} (${f.size} ${f.unit})` === row[formatCol]) || availableFormats[0] || {},
+      breakdown: [] // Breakdown is not persisted, so it's empty when loading from sheet
+    };
+  });
+
+  if (baseToCategory.has('sin categoría')) {
+    allCategoriesSet.add('Sin Categoría');
+  }
+
+  // 3. Get all suppliers for the dropdown
+  const supplierData = proveedoresSheet.getRange("A2:A" + proveedoresSheet.getLastRow()).getValues().flat().filter(String);
+  const supplierSet = new Set(supplierData);
+  supplierSet.add("Patio Mayorista");
+
+  return {
+    acquisitionPlan: acquisitionPlan,
+    allSuppliers: Array.from(supplierSet).sort(),
+    allCategories: Array.from(allCategoriesSet).sort()
+  };
+}
+
+function calculateNewAcquisitionPlan(mode = 'wholesale') {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const ordersSheet = ss.getSheetByName('Orders');
   const skuSheet = ss.getSheetByName('SKU');
@@ -2627,18 +2717,22 @@ function getAcquisitionDataForEditor(mode = 'wholesale') {
   const inventoryMap = getCurrentInventory();
   const { productToSkuMap, baseProductPurchaseOptions } = getPurchaseDataMaps(skuSheet);
   const baseProductNeeds = calculateBaseProductNeeds(ordersSheet, productToSkuMap);
+  const approvedMap = getApprovedItemsMap();
   const acquisitionPlan = createAcquisitionPlan(baseProductNeeds, baseProductPurchaseOptions, inventoryMap, mode);
 
-  // Enriquecer plan con categorías
+  // Enriquecer plan con categorías y estado de aprobación
   let hasUncategorized = false;
   acquisitionPlan.forEach(item => {
     const key = normalizeKey(item.productName);
+    // Add category
     if (baseToCategory.has(key)) {
       item.category = baseToCategory.get(key);
     } else {
       item.category = 'Sin Categoría';
       hasUncategorized = true;
     }
+    // Add approved status
+    item.approved = approvedMap[key] || false;
   });
   if (hasUncategorized) {
       allCategoriesSet.add('Sin Categoría');
@@ -2676,13 +2770,14 @@ function saveAcquisitions(finalPlan) {
     sheet = ss.insertSheet("Lista de Adquisiciones");
   }
 
-  // Escribir datos en un formato plano para mayor robustez, con una columna de proveedor.
-  const headers = ["Producto Base", "Cantidad a Comprar", "Formato de Compra", "Inventario Actual", "Unidad Inventario Actual", "Necesidad de Venta", "Unidad Venta", "Inventario al Finalizar", "Unidad Inventario Final", "Precio Adq. Anterior", "Precio Adq. HOY", "Proveedor"];
-  sheet.getRange("A1:L1").setValues([headers]).setFontWeight("bold");
+  // Escribir datos en un formato plano para mayor robustez, con una columna de proveedor y una de aprobado
+  const headers = ["Producto Base", "Cantidad a Comprar", "Formato de Compra", "Inventario Actual", "Unidad Inventario Actual", "Necesidad de Venta", "Unidad Venta", "Inventario al Finalizar", "Unidad Inventario Final", "Precio Adq. Anterior", "Precio Adq. HOY", "Proveedor", "Aprobado"];
+  sheet.getRange("A1:M1").setValues([headers]).setFontWeight("bold");
   sheet.getRange("A1:C1").setBackground("#d9ead3");
   sheet.getRange("D1:E1").setBackground("#fff2cc");
   sheet.getRange("F1:K1").setBackground("#f4cccc");
   sheet.getRange("L1").setBackground("#d9d9d9");
+  sheet.getRange("M1").setBackground("#c9daf8"); // Estilo para la nueva columna "Aprobado"
   sheet.setFrozenRows(1);
 
   const inventoryMap = getCurrentInventory(); // Get current inventory
@@ -2714,7 +2809,8 @@ function saveAcquisitions(finalPlan) {
       p.unit,
       precioAnterior, // Columna J
       precioHoy,      // Columna K
-      p.supplier || "Sin Proveedor"
+      p.supplier || "Sin Proveedor",
+      p.approved || false // Guardar el estado de aprobación
     ];
     dataToWrite.push(rowData);
   });
@@ -2924,6 +3020,42 @@ function recalculateRowInventory(sheet, row) {
 }
 
 
+
+/**
+ * Lee la hoja "Historico Adquisiciones" y devuelve un mapa de precios históricos por producto.
+ * @returns {Object<string, Array<{date: Date, price: number}>>} Un mapa donde las claves son
+ *   nombres de productos y los valores son arrays de objetos de precio, ordenados por fecha descendente.
+ */
+function getApprovedItemsMap() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName("Lista de Adquisiciones");
+  const approvedMap = {};
+
+  if (!sheet || sheet.getLastRow() < 2) {
+    return approvedMap;
+  }
+
+  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  const productCol = headers.indexOf("Producto Base");
+  const approvedCol = headers.indexOf("Aprobado");
+
+  // Si la columna Aprobado no existe aún, no hay nada que mapear.
+  if (productCol === -1 || approvedCol === -1) {
+    return approvedMap;
+  }
+
+  const data = sheet.getRange(2, 1, sheet.getLastRow() - 1, sheet.getLastColumn()).getValues();
+
+  data.forEach(row => {
+    const productName = row[productCol];
+    const isApproved = row[approvedCol]; // Esto será TRUE o FALSE
+    if (productName && isApproved === true) {
+      approvedMap[normalizeKey(productName)] = true;
+    }
+  });
+
+  return approvedMap;
+}
 
 /**
  * Lee la hoja "Historico Adquisiciones" y devuelve un mapa de precios históricos por producto.

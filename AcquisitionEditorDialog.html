@@ -134,11 +134,16 @@
         <input type="checkbox" id="toggle-breakdown-cb" style="width: auto; margin-right: 5px;" checked>
         Activar Desglose en Hover
       </label>
+       <label style="display: flex; align-items: center; cursor: pointer; border-left: 2px solid #ccc; padding-left: 20px;">
+        <input type="checkbox" id="unapproved-filter" style="width: auto; margin-right: 5px;">
+        Mostrar solo no aprobados
+      </label>
     </div>
     <p>La lista carga por defecto en modo "Mayorista". Usa los botones para recalcular según necesites.</p>
     <table id="acquisitions-table">
       <thead>
         <tr>
+          <th style="width: 50px; text-align: center;">Aprobado</th>
           <th>Producto Base</th>
           <th>Inventario Actual</th>
           <th>Necesidad Venta</th>
@@ -180,6 +185,7 @@
     const supplierFilter = document.getElementById('supplier-filter');
     const productSearchFilter = document.getElementById('product-search-filter');
     const reviewFilter = document.getElementById('review-filter');
+    const unapprovedFilter = document.getElementById('unapproved-filter'); // New filter
 
     function processPlanData(plan) {
        plan.forEach(item => {
@@ -187,6 +193,7 @@
           item.allFormatStrings = item.availableFormats.map(f => `${f.name} (${f.size} ${f.unit})`);
           item.selectedFormatString = `${item.suggestedFormat.name} (${item.suggestedFormat.size} ${item.suggestedFormat.unit})`;
           item.correctedInventory = null;
+          // 'approved' property is now expected from the server
         });
         return plan;
     }
@@ -216,6 +223,7 @@
         supplierFilter.addEventListener('change', renderTable);
         productSearchFilter.addEventListener('input', renderTable);
         reviewFilter.addEventListener('change', renderTable);
+        unapprovedFilter.addEventListener('change', renderTable); // New listener
 
         // Add event listeners for the breakdown tooltip
         tableBody.addEventListener('mouseover', handleMouseOver);
@@ -227,32 +235,39 @@
         saveBtn.disabled = false;
 
         tableBody.addEventListener('input', function(e) {
-          if (e.target.classList.contains('quantity-input') || e.target.classList.contains('format-select') || e.target.classList.contains('supplier-select') || e.target.classList.contains('inventory-correction-input')) {
-            const row = e.target.closest('tr');
-            if (!row) return;
-            const index = parseInt(row.getAttribute('data-index'), 10);
+          const row = e.target.closest('tr');
+          if (!row) return;
+          const index = parseInt(row.getAttribute('data-index'), 10);
 
-            if (e.target.classList.contains('quantity-input')) {
-              planData[index].suggestedQty = e.target.value;
-            }
-            if (e.target.classList.contains('format-select')) {
-              planData[index].selectedFormatString = e.target.value;
-            }
-            if (e.target.classList.contains('supplier-select')) {
-              planData[index].supplier = e.target.value;
-            }
-            if (e.target.classList.contains('inventory-correction-input')) {
-              const value = parseFloat(e.target.value);
-              planData[index].correctedInventory = isNaN(value) ? null : value;
-            }
-
+          if (e.target.classList.contains('quantity-input')) {
+            planData[index].suggestedQty = e.target.value;
+            updateRowAppearance(row, planData[index]);
+          } else if (e.target.classList.contains('format-select')) {
+            planData[index].selectedFormatString = e.target.value;
+            updateRowAppearance(row, planData[index]);
+          } else if (e.target.classList.contains('supplier-select')) {
+            planData[index].supplier = e.target.value;
+            updateRowAppearance(row, planData[index]);
+          } else if (e.target.classList.contains('inventory-correction-input')) {
+            const value = parseFloat(e.target.value);
+            planData[index].correctedInventory = isNaN(value) ? null : value;
             updateRowAppearance(row, planData[index]);
           }
         });
 
+        // Use 'change' for checkboxes
+        tableBody.addEventListener('change', function(e) {
+            if (e.target.classList.contains('approved-checkbox')) {
+                const row = e.target.closest('tr');
+                if (!row) return;
+                const index = parseInt(row.getAttribute('data-index'), 10);
+                planData[index].approved = e.target.checked;
+            }
+        });
+
         tableBody.addEventListener('click', function(e) {
           if (e.target.classList.contains('add-format-btn')) {
-            e.preventDefault(); // Prevent any default button action
+            e.preventDefault();
             const row = e.target.closest('tr');
             if (!row) return;
             const index = parseInt(row.getAttribute('data-index'), 10);
@@ -316,6 +331,7 @@
       const selectedSupplier = supplierFilter.value;
       const searchTerm = productSearchFilter.value.toLowerCase();
       const showOnlyReview = reviewFilter.checked;
+      const showOnlyUnapproved = unapprovedFilter.checked;
 
       tableBody.innerHTML = '';
 
@@ -331,7 +347,7 @@
         if (anyItemNeedsReview) {
             const separatorRow = document.createElement('tr');
             separatorRow.classList.add('review-alert-header');
-            separatorRow.innerHTML = `<th colspan="7" style="text-align: center; background-color: #f8d7da; color: #721c24; font-size: 16px; padding: 12px; border-top: 2px solid #721c24; border-bottom: 2px solid #721c24;">🚨 ¡Atención! Se requiere revisar el inventario de las siguientes filas. 🚨</th>`;
+            separatorRow.innerHTML = `<th colspan="8" style="text-align: center; background-color: #f8d7da; color: #721c24; font-size: 16px; padding: 12px; border-top: 2px solid #721c24; border-bottom: 2px solid #721c24;">🚨 ¡Atención! Se requiere revisar el inventario de las siguientes filas. 🚨</th>`;
             tableBody.appendChild(separatorRow);
         }
       }
@@ -341,6 +357,10 @@
           const supplierOk = !selectedSupplier || item.supplier === selectedSupplier;
           const searchOk = !searchTerm || item.productName.toLowerCase().includes(searchTerm);
           if (!(catOk && supplierOk && searchOk)) return false;
+
+          if (showOnlyUnapproved && item.approved) {
+              return false;
+          }
 
           if (showOnlyReview) {
             const inventoryForCalc = (typeof item.correctedInventory === 'number' && !isNaN(item.correctedInventory))
@@ -360,7 +380,6 @@
         const row = document.createElement('tr');
         row.setAttribute('data-index', index);
 
-        // Store the breakdown data as a data attribute on the row
         if (item.breakdown && item.breakdown.length > 0) {
           row.setAttribute('data-breakdown', JSON.stringify(item.breakdown));
         }
@@ -378,6 +397,7 @@
         }
 
         row.innerHTML = `
+          <td style="text-align: center;"><input type="checkbox" class="approved-checkbox" style="width: auto;" ${item.approved ? 'checked' : ''}></td>
           <td class="product-base-cell">${item.productName}</td>
           ${inventoryCellHtml}
           <td>${item.totalNeed} ${item.unit}</td>
@@ -399,7 +419,7 @@
 
       if (notNeededItems.length > 0 && neededItems.length > 0) {
         const separatorRow = document.createElement('tr');
-        separatorRow.innerHTML = `<th colspan="7" style="text-align: center; background-color: #e9ecef; color: #495057; font-size: 14px; padding: 10px;">Productos sin necesidad de compra inmediata</th>`;
+        separatorRow.innerHTML = `<th colspan="8" style="text-align: center; background-color: #e9ecef; color: #495057; font-size: 14px; padding: 10px;">Productos sin necesidad de compra inmediata</th>`;
         tableBody.appendChild(separatorRow);
       }
 
@@ -407,10 +427,7 @@
     }
 
     function handleAddNewFormat(productBase, index) {
-      // Prevent multiple modals from opening
       if (document.getElementById('add-format-modal-overlay')) return;
-
-      // 1. Create modal structure
       const modalOverlay = document.createElement('div');
       modalOverlay.id = 'add-format-modal-overlay';
       Object.assign(modalOverlay.style, {
@@ -418,82 +435,44 @@
         backgroundColor: 'rgba(0, 0, 0, 0.6)', zIndex: 1001,
         display: 'flex', justifyContent: 'center', alignItems: 'center'
       });
-
       const modalContent = document.createElement('div');
       Object.assign(modalContent.style, {
         background: 'white', padding: '25px', borderRadius: '8px',
         boxShadow: '0 5px 15px rgba(0,0,0,0.3)', width: '400px'
       });
-
-      // 2. Create form elements using existing `allSuppliers` variable
       const supplierOptions = allSuppliers.map(s => `<option value="${s}">${s}</option>`).join('');
-
       modalContent.innerHTML = `
         <h3 style="margin-top: 0; border-bottom: 1px solid #eee; padding-bottom: 10px;">Añadir Nuevo Formato de Compra</h3>
         <p>Para el producto base: <strong>${productBase}</strong></p>
         <div style="display: flex; flex-direction: column; gap: 15px;">
-          <label>Nombre del Formato (ej. Caja, Saco):
-            <input type="text" id="new-format-name" style="width: 95%; padding: 8px; font-size: 14px; border-radius: 4px; border: 1px solid #ccc;" required>
-          </label>
-          <label>Cantidad Compra (ej. 12, 25):
-            <input type="number" id="new-format-quantity" style="width: 95%; padding: 8px; font-size: 14px; border-radius: 4px; border: 1px solid #ccc;" required step="any">
-          </label>
-          <label>Unidad Compra (ej. Kg, Litro, Unidad):
-            <input type="text" id="new-format-unit" style="width: 95%; padding: 8px; font-size: 14px; border-radius: 4px; border: 1px solid #ccc;" required list="unit-suggestions">
-            <datalist id="unit-suggestions">
-              <option value="Kg"></option><option value="Gr"></option><option value="Litro"></option><option value="Unidad"></option><option value="Bandeja"></option>
-            </datalist>
-          </label>
-          <label>Proveedor:
-            <select id="new-format-supplier" style="width: 100%; padding: 8px; font-size: 14px; border-radius: 4px; border: 1px solid #ccc;">
-              ${supplierOptions}
-            </select>
-          </label>
+          <label>Nombre del Formato (ej. Caja, Saco):<input type="text" id="new-format-name" style="width: 95%;" required></label>
+          <label>Cantidad Compra (ej. 12, 25):<input type="number" id="new-format-quantity" style="width: 95%;" required step="any"></label>
+          <label>Unidad Compra (ej. Kg, Litro, Unidad):<input type="text" id="new-format-unit" style="width: 95%;" required list="unit-suggestions"><datalist id="unit-suggestions"><option value="Kg"></option><option value="Gr"></option><option value="Litro"></option><option value="Unidad"></option><option value="Bandeja"></option></datalist></label>
+          <label>Proveedor:<select id="new-format-supplier" style="width: 100%;">${supplierOptions}</select></label>
         </div>
         <div style="margin-top: 25px; text-align: right; display: flex; gap: 10px; justify-content: flex-end;">
           <button type="button" id="cancel-new-format-btn" class="button">Cancelar</button>
           <button type="button" id="save-new-format-btn" class="button" style="background-color: #1877f2; color: white;">Guardar Formato</button>
-        </div>
-      `;
-
-      // 3. Append to body and add event listeners
+        </div>`;
       modalOverlay.appendChild(modalContent);
       document.body.appendChild(modalOverlay);
       document.getElementById('new-format-name').focus();
-
-      const closeModal = () => {
-        if (document.body.contains(modalOverlay)) {
-          document.body.removeChild(modalOverlay);
-        }
-      };
-
+      const closeModal = () => { if (document.body.contains(modalOverlay)) document.body.removeChild(modalOverlay); };
       document.getElementById('cancel-new-format-btn').addEventListener('click', closeModal);
-      modalOverlay.addEventListener('click', (e) => {
-        if (e.target === modalOverlay) closeModal();
-      });
-
+      modalOverlay.addEventListener('click', (e) => { if (e.target === modalOverlay) closeModal(); });
       document.getElementById('save-new-format-btn').addEventListener('click', () => {
-        // 4. Collect data from the form
         const newFormatData = {
-          productBase: productBase,
-          rowIndex: index, // Pass the index to know which row to update later
+          productBase: productBase, rowIndex: index,
           formatName: document.getElementById('new-format-name').value.trim(),
           formatQuantity: parseFloat(document.getElementById('new-format-quantity').value),
           formatUnit: document.getElementById('new-format-unit').value.trim(),
           supplier: document.getElementById('new-format-supplier').value
         };
-
-        // 5. Basic validation
         if (!newFormatData.formatName || isNaN(newFormatData.formatQuantity) || newFormatData.formatQuantity <= 0 || !newFormatData.formatUnit) {
-          alert('Por favor, complete todos los campos del formato correctamente.');
-          return;
+          alert('Por favor, complete todos los campos del formato correctamente.'); return;
         }
-
         const saveBtn = document.getElementById('save-new-format-btn');
-        saveBtn.textContent = 'Guardando...';
-        saveBtn.disabled = true;
-
-        // 6. Call the server-side function
+        saveBtn.textContent = 'Guardando...'; saveBtn.disabled = true;
         google.script.run
           .withSuccessHandler(function(response) {
             if (response.status === 'success') {
@@ -501,27 +480,17 @@
               item.allFormatObjects = response.allFormatObjects;
               item.allFormatStrings = response.allFormatStrings;
               item.selectedFormatString = response.newFormatString;
-
               const row = tableBody.querySelector(`tr[data-index="${newFormatData.rowIndex}"]`);
               if (row) {
-                 const formatCell = row.cells[4]; // 5th cell is "Formato de Compra"
-                 formatCell.innerHTML = `
-                  <div style="display: flex; align-items: center; gap: 4px;">
-                    <select class="format-select" style="width: auto; flex-grow: 1;">
-                      ${createOptions(item.allFormatStrings, item.selectedFormatString)}
-                    </select>
-                    <button type="button" class="add-format-btn" title="Crear nuevo formato de compra para este producto" data-product-base="${item.productName}">+</button>
-                  </div>`;
+                 const formatCell = row.cells[5]; // Now 6th cell
+                 formatCell.innerHTML = `<div style="display: flex; align-items: center; gap: 4px;"><select class="format-select" style="width: auto; flex-grow: 1;">${createOptions(item.allFormatStrings, item.selectedFormatString)}</select><button type="button" class="add-format-btn" title="Crear nuevo formato de compra para este producto" data-product-base="${item.productName}">+</button></div>`;
               }
               closeModal();
-            } else {
-              throw new Error(response.message || 'Ocurrió un error inesperado en el servidor.');
-            }
+            } else { throw new Error(response.message || 'Ocurrió un error inesperado en el servidor.'); }
           })
           .withFailureHandler(function(error) {
             alert('Error al guardar el formato: ' + error.message);
-            saveBtn.textContent = 'Guardar Formato';
-            saveBtn.disabled = false;
+            saveBtn.textContent = 'Guardar Formato'; saveBtn.disabled = false;
           })
           .addNewSku(newFormatData);
       });
@@ -534,81 +503,37 @@
     }
 
     // --- Tooltip Handler Functions ---
-
     function handleMouseOver(e) {
-        // Do nothing if the feature is disabled by the user
-        if (!document.getElementById('toggle-breakdown-cb').checked) {
-            const tooltip = document.getElementById('breakdown-tooltip');
-            if (tooltip) {
-                tooltip.style.display = 'none';
-            }
-            return;
-        }
-
-        // Only trigger if hovering over the specific product cell
+        if (!document.getElementById('toggle-breakdown-cb').checked) { const tooltip = document.getElementById('breakdown-tooltip'); if (tooltip) tooltip.style.display = 'none'; return; }
         if (e.target.classList.contains('product-base-cell')) {
-            const row = e.target.closest('tr');
-            if (!row) return;
-
-            const breakdownData = row.getAttribute('data-breakdown');
-            if (!breakdownData) return;
-
-            let tooltip = document.getElementById('breakdown-tooltip');
-            if (!tooltip) {
-                tooltip = document.createElement('div');
-                tooltip.id = 'breakdown-tooltip';
-                document.body.appendChild(tooltip);
-            }
-
+            const row = e.target.closest('tr'); if (!row) return;
+            const breakdownData = row.getAttribute('data-breakdown'); if (!breakdownData) return;
+            let tooltip = document.getElementById('breakdown-tooltip'); if (!tooltip) { tooltip = document.createElement('div'); tooltip.id = 'breakdown-tooltip'; document.body.appendChild(tooltip); }
             try {
                 const breakdown = JSON.parse(breakdownData);
                 if (breakdown.length > 0) {
                     let html = '<h4>Desglose de Necesidad</h4><ul>';
-                    breakdown.forEach(order => {
-                        html += `<li><b>${order.quantity} x ${order.productName}</b><br><small>(Pedido: ${order.orderId}, Cliente: ${order.customerName})</small></li>`;
-                    });
+                    breakdown.forEach(order => { html += `<li><b>${order.quantity} x ${order.productName}</b><br><small>(Pedido: ${order.orderId}, Cliente: ${order.customerName})</small></li>`; });
                     html += '</ul>';
-                    tooltip.innerHTML = html;
-                    tooltip.className = 'breakdown-tooltip';
-                    tooltip.style.display = 'block';
+                    tooltip.innerHTML = html; tooltip.className = 'breakdown-tooltip'; tooltip.style.display = 'block';
                 }
-            } catch (err) {
-                console.error("Error parsing breakdown data:", err);
-                if(tooltip) tooltip.style.display = 'none';
-            }
+            } catch (err) { console.error("Error parsing breakdown data:", err); if(tooltip) tooltip.style.display = 'none'; }
         }
     }
-
-    function handleMouseOut(e) {
-        // Only hide the tooltip if leaving the specific product cell
-        if (e.target.classList.contains('product-base-cell')) {
-            const tooltip = document.getElementById('breakdown-tooltip');
-            if (tooltip) {
-                tooltip.style.display = 'none';
-            }
-        }
-    }
-
-    function handleMouseMove(e) {
-        const tooltip = document.getElementById('breakdown-tooltip');
-        if (tooltip && tooltip.style.display === 'block') {
-            tooltip.style.left = (e.pageX + 15) + 'px';
-            tooltip.style.top = (e.pageY + 15) + 'px';
-        }
-    }
+    function handleMouseOut(e) { if (e.target.classList.contains('product-base-cell')) { const tooltip = document.getElementById('breakdown-tooltip'); if (tooltip) tooltip.style.display = 'none'; } }
+    function handleMouseMove(e) { const tooltip = document.getElementById('breakdown-tooltip'); if (tooltip && tooltip.style.display === 'block') { tooltip.style.left = (e.pageX + 15) + 'px'; tooltip.style.top = (e.pageY + 15) + 'px'; } }
 
     saveBtn.addEventListener('click', function() {
       showReviewHeader = true;
       renderTable();
       setLoadingState(true, 'Guardando cambios...');
-
       const finalPlan = planData.map(item => ({
           ...item,
           quantity: item.suggestedQty,
           selectedFormatString: item.selectedFormatString,
-          supplier: item.supplier
+          supplier: item.supplier,
+          approved: item.approved // Include approved state
       }));
-
       google.script.run
         .withSuccessHandler(handleSaveSuccess)
         .withFailureHandler(handleError)
@@ -618,13 +543,10 @@
     function handleSaveSuccess(response) {
       setLoadingState(false, '¡Guardado! Listo para notificar.');
       alert(response.message);
-
       const saveBtn = document.getElementById('save-btn');
       saveBtn.textContent = 'Ir al Panel de Notificación';
-
       const newSaveBtn = saveBtn.cloneNode(true);
       saveBtn.parentNode.replaceChild(newSaveBtn, saveBtn);
-
       newSaveBtn.addEventListener('click', () => {
         setLoadingState(true, 'Abriendo notificaciones...');
         google.script.run
@@ -658,10 +580,7 @@
     wholesaleBtn.addEventListener('click', function() {
       setLoadingState(true, 'Calculando compra mayorista...');
       google.script.run
-        .withSuccessHandler(function(newData) {
-          handleDataSuccess(newData);
-          setLoadingState(false, 'Cálculo mayorista completado.');
-        })
+        .withSuccessHandler(function(newData) { handleDataSuccess(newData); setLoadingState(false, 'Cálculo mayorista completado.'); })
         .withFailureHandler(handleError)
         .getAcquisitionDataForEditor('wholesale');
     });
@@ -669,10 +588,7 @@
     justInTimeBtn.addEventListener('click', function() {
       setLoadingState(true, 'Calculando compra justa...');
       google.script.run
-        .withSuccessHandler(function(newData) {
-          handleDataSuccess(newData);
-          setLoadingState(false, 'Cálculo de compra justa completado.');
-        })
+        .withSuccessHandler(function(newData) { handleDataSuccess(newData); setLoadingState(false, 'Cálculo de compra justa completado.'); })
         .withFailureHandler(handleError)
         .getAcquisitionDataForEditor('just-in-time');
     });
@@ -680,10 +596,7 @@
     showAllBtn.addEventListener('click', function() {
       setLoadingState(true, 'Cargando todos los productos...');
       google.script.run
-        .withSuccessHandler(function(newData) {
-          handleDataSuccess(newData);
-          setLoadingState(false, 'Se han cargado todos los productos.');
-        })
+        .withSuccessHandler(function(newData) { handleDataSuccess(newData); setLoadingState(false, 'Se han cargado todos los productos.'); })
         .withFailureHandler(handleError)
         .getAcquisitionDataForEditor('all');
     });
@@ -694,15 +607,11 @@
         google.script.run
           .withSuccessHandler(function(response) {
             alert(response.message);
-            // Recargar los datos en el editor para que refleje la lista vacía
             setLoadingState(true, 'Recargando datos...');
             google.script.run
-              .withSuccessHandler(function(newData) {
-                handleDataSuccess(newData);
-                setLoadingState(false, 'La lista ha sido limpiada y los datos recargados.');
-              })
+              .withSuccessHandler(function(newData) { handleDataSuccess(newData); setLoadingState(false, 'La lista ha sido limpiada y los datos recargados.'); })
               .withFailureHandler(handleError)
-              .getAcquisitionDataForEditor('wholesale'); // Recargar en modo por defecto
+              .getAcquisitionDataForEditor('wholesale');
           })
           .withFailureHandler(handleError)
           .clearAcquisitionsList();
