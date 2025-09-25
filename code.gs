@@ -3656,31 +3656,32 @@ function calculateBaseProductNeeds(ordersSheet, productToSkuMap) {
 
     if (name && qty && productToSkuMap[name]) {
       const skuInfoArray = productToSkuMap[name];
-      if (Array.isArray(skuInfoArray)) {
-        skuInfoArray.forEach(skuInfo => {
-          const baseProduct = skuInfo.productoBase;
-          const saleUnit = normalizeUnit(skuInfo.unidadVenta);
-          const totalSaleAmount = (parseFloat(String(qty).replace(",", ".")) || 0) * skuInfo.cantidadVenta;
+      // FIX: Process only the first valid SKU info to prevent duplicate breakdown entries
+      // when a product is mapped to the same base product multiple times in the SKU sheet.
+      if (Array.isArray(skuInfoArray) && skuInfoArray.length > 0) {
+        const skuInfo = skuInfoArray[0]; // Use the first mapping found
+        const baseProduct = skuInfo.productoBase;
+        const saleUnit = normalizeUnit(skuInfo.unidadVenta);
+        const totalSaleAmount = (parseFloat(String(qty).replace(",", ".")) || 0) * skuInfo.cantidadVenta;
 
-          if (totalSaleAmount > 0) {
-              if (!baseProductNeeds[baseProduct]) {
-                  baseProductNeeds[baseProduct] = {};
-              }
-              if (!baseProductNeeds[baseProduct][saleUnit]) {
-                  baseProductNeeds[baseProduct][saleUnit] = {
-                      total: 0,
-                      breakdown: []
-                  };
-              }
-              baseProductNeeds[baseProduct][saleUnit].total += totalSaleAmount;
-              baseProductNeeds[baseProduct][saleUnit].breakdown.push({
-                  orderId: `#${orderId}`,
-                  customerName: customerName,
-                  quantity: qty, // The quantity of the *sale item*
-                  productName: name // The name of the *sale item*
-              });
-          }
-        });
+        if (totalSaleAmount > 0) {
+            if (!baseProductNeeds[baseProduct]) {
+                baseProductNeeds[baseProduct] = {};
+            }
+            if (!baseProductNeeds[baseProduct][saleUnit]) {
+                baseProductNeeds[baseProduct][saleUnit] = {
+                    total: 0,
+                    breakdown: []
+                };
+            }
+            baseProductNeeds[baseProduct][saleUnit].total += totalSaleAmount;
+            baseProductNeeds[baseProduct][saleUnit].breakdown.push({
+                orderId: `#${orderId}`,
+                customerName: customerName,
+                quantity: qty, // The quantity of the *sale item*
+                productName: name // The name of the *sale item*
+            });
+        }
       }
     }
   });
