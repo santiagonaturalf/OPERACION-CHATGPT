@@ -1877,18 +1877,130 @@ function extractOrdersFromPackingList(orderIdsToExtract) {
     // --- END NEW LOGIC ---
 
     const newSheetName = generateExtractionSheet(orderIdsToExtract, customerName, extractedRows);
+    generateExtractionPackingList(orderIdsToExtract, extractedRows);
+
 
     generatePostExtractionPackingList(allExcludedOrderIds);
 
     return {
       status: 'success',
-      message: `Extracción completada. Se creó la hoja "${newSheetName}" y la nueva lista de envasado post-extracción.`
+      message: `Extracción completada. Se creó la hoja "${newSheetName}", la lista de envasado de la extracción y la nueva lista de envasado general.`
     };
   } catch (e) {
     Logger.log(`Error en extractOrdersFromPackingList: ${e.stack}`);
     throw new Error(`Ocurrió un error en la extracción: ${e.message}`);
   }
 }
+
+/**
+ * Generates a packing list for the extracted orders.
+ * @param {string[]} orderIdsToExtract The IDs of the orders being extracted.
+ * @param {Array<Object>} extractedRows The raw row data from the 'Orders' sheet for the extracted orders.
+ * @returns {string} The name of the newly created sheet.
+ */
+function generateExtractionPackingList(orderIdsToExtract, extractedRows) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const skuSheet = ss.getSheetByName('SKU');
+  const ordersSheet = ss.getSheetByName('Orders'); // To get headers
+
+  // 1. Process data
+  const skuMap = getSkuMap(skuSheet);
+  const headers = ordersSheet.getRange(1, 1, 1, ordersSheet.getLastColumn()).getValues()[0];
+  const idx = indexer(headers);
+
+  const productTotals = {};
+  extractedRows.forEach(row => {
+    const name = row[idx.producto];
+    const qty = row[idx.cantidad];
+    if (name && qty) {
+      if (!productTotals[name]) { productTotals[name] = 0; }
+      productTotals[name] += parseInt(qty, 10) || 0;
+    }
+  });
+
+  const deletedStock = getDeletedOrdersStock();
+  const stockMap = getStockFromOrders();
+  const categorySummary = {};
+
+  for (const productName in productTotals) {
+    const needed = productTotals[productName];
+    const availableFromDeleted = deletedStock.get(productName) || 0;
+    const netToPack = Math.max(0, needed - availableFromDeleted);
+
+    // Si no se necesita envasar este producto, no lo agregamos a la lista.
+    if (netToPack === 0) continue;
+
+    const category = skuMap[productName] ? skuMap[productName].category : 'Sin Categoría';
+    if (!categorySummary[category]) {
+      categorySummary[category] = { count: 0, products: {} };
+    }
+    categorySummary[category].count++;
+    const inventoryInfo = stockMap[productName];
+    let inventoryValue = 'No encontrado';
+    if (inventoryInfo) {
+      const stock = String(inventoryInfo.quantity);
+      const unit = String(inventoryInfo.unit);
+      if (stock || unit) {
+        inventoryValue = `${stock} ${unit}`.trim();
+      }
+    }
+    categorySummary[category].products[productName] = {
+      total: netToPack, // Usar la cantidad neta
+      stock: inventoryValue
+    };
+  }
+
+  // 2. Create sheet and title
+  const sheetName = `Lista de Envasado Extraccion - ${orderIdsToExtract.length}`;
+
+  let sheet = ss.getSheetByName(sheetName);
+  if (sheet) {
+    sheet.clear();
+  } else {
+    sheet = ss.insertSheet(sheetName);
+  }
+  sheet.activate();
+
+  // 3. Populate sheet
+  let currentRow = 1;
+  const title = `Lista de Envasado Extraccion - ${orderIdsToExtract.length} pedidos`;
+  sheet.getRange(currentRow, 1, 1, 3).merge().setValue(title).setFontWeight("bold").setFontSize(14).setHorizontalAlignment("center");
+  currentRow += 2;
+
+  const sheetHeaders = ["Inventario Actual", "Cantidad", "Nombre Producto"];
+  sheet.getRange(currentRow, 1, 1, 3).setValues([sheetHeaders]).setFontWeight("bold").setHorizontalAlignment("center").setVerticalAlignment("middle");
+  sheet.setFrozenRows(currentRow);
+  currentRow++;
+
+  const allCategories = Object.keys(categorySummary).sort();
+  allCategories.forEach(category => {
+    sheet.getRange(currentRow, 1, 1, 3).merge().setValue(category.toUpperCase()).setFontWeight("bold").setHorizontalAlignment("center").setBackground("#f2f2f2");
+    currentRow++;
+
+    const products = categorySummary[category].products;
+    const sortedProductNames = Object.keys(products).sort();
+    const productRows = [];
+    sortedProductNames.forEach(productName => {
+      productRows.push([products[productName].stock, products[productName].total, productName]);
+    });
+
+    if (productRows.length > 0) {
+      const dataRange = sheet.getRange(currentRow, 1, productRows.length, 3);
+      dataRange.setValues(productRows);
+      dataRange.setHorizontalAlignment("center").setVerticalAlignment("middle");
+      currentRow += productRows.length;
+    }
+    currentRow++;
+  });
+
+  // 4. Formatting
+  sheet.setColumnWidth(1, 100);
+  sheet.setColumnWidth(2, 150);
+  sheet.setColumnWidth(3, 350);
+
+  return sheet.getName(); // Return the name of the created sheet
+}
+
 
 /**
  * Generates a formatted extraction sheet, similar to a packing list.
@@ -1917,9 +2029,16 @@ function generateExtractionSheet(orderIdsToExtract, customerName, extractedRows)
     }
   });
 
+  const deletedStock = getDeletedOrdersStock();
   const stockMap = getStockFromOrders();
   const categorySummary = {};
   for (const productName in productTotals) {
+    const needed = productTotals[productName];
+    const availableFromDeleted = deletedStock.get(productName) || 0;
+    const netToPack = Math.max(0, needed - availableFromDeleted);
+
+    if (netToPack === 0) continue;
+
     const category = skuMap[productName] ? skuMap[productName].category : 'Sin Categoría';
     if (!categorySummary[category]) {
       categorySummary[category] = { count: 0, products: {} };
@@ -1935,7 +2054,7 @@ function generateExtractionSheet(orderIdsToExtract, customerName, extractedRows)
       }
     }
     categorySummary[category].products[productName] = {
-      total: productTotals[productName],
+      total: netToPack,
       stock: inventoryValue
     };
   }
@@ -2014,18 +2133,22 @@ function generatePostExtractionPackingList(excludedOrderIds) {
   const productTotals = {};
   allOrdersData.forEach(row => {
     const orderId = String(row[idx.numPedido]);
-    if (excludedOrderIds.includes(orderId)) {
+    const quantityStr = String(row[idx.cantidad] || '');
+
+    // Omitir pedidos extraídos y pedidos marcados como eliminados
+    if (excludedOrderIds.includes(orderId) || quantityStr.startsWith('E')) {
       return;
     }
 
     const name = row[idx.producto];
-    const qty = row[idx.cantidad];
-    if (name && qty) {
+    const qty = parseInt(quantityStr, 10) || 0;
+    if (name && qty > 0) {
       if (!productTotals[name]) { productTotals[name] = 0; }
-      productTotals[name] += parseInt(qty, 10) || 0;
+      productTotals[name] += qty;
     }
   });
 
+  const deletedStock = getDeletedOrdersStock();
   const stockMap = getStockFromOrders();
   const categorySummary = {};
   for (const productName in productTotals) {
@@ -2095,6 +2218,46 @@ function generatePostExtractionPackingList(excludedOrderIds) {
   sheet.setColumnWidth(2, 150);
   sheet.setColumnWidth(3, 350);
 }
+
+/**
+ * Calculates the total quantity of each product from orders marked as deleted.
+ * @returns {Map<string, number>} A map where keys are product names and values are the total available stock from deleted orders.
+ */
+function getDeletedOrdersStock() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName('Orders');
+  if (!sheet) {
+    Logger.log("getDeletedOrdersStock: Hoja 'Orders' no encontrada.");
+    return new Map();
+  }
+
+  const data = sheet.getDataRange().getValues();
+  const headers = data.shift();
+  const idx = indexer(headers);
+
+  const stockMap = new Map();
+
+  if (idx.producto < 0 || idx.cantidad < 0) {
+    Logger.log("getDeletedOrdersStock: No se encontraron las columnas 'Item Name' o 'Item Quantity'.");
+    return stockMap;
+  }
+
+  data.forEach(row => {
+    const productName = row[idx.producto];
+    const quantityStr = String(row[idx.cantidad] || '');
+
+    if (productName && quantityStr.startsWith('E')) {
+      const quantity = parseInt(quantityStr.substring(1), 10) || 0;
+      if (quantity > 0) {
+        stockMap.set(productName, (stockMap.get(productName) || 0) + quantity);
+      }
+    }
+  });
+
+  Logger.log("Stock desde pedidos eliminados: " + JSON.stringify(Object.fromEntries(stockMap)));
+  return stockMap;
+}
+
 
 /*************************** CONFIG ***************************/
 // Nombre de hojas esperadas
@@ -2372,19 +2535,35 @@ function getPackagingData() {
   const ordersSheet = ss.getSheetByName('Orders');
   const skuSheet = ss.getSheetByName('SKU');
   const skuMap = getSkuMap(skuSheet);
-  const orderData = ordersSheet.getRange("J2:K" + ordersSheet.getLastRow()).getValues();
+
+  const data = ordersSheet.getDataRange().getValues();
+  const headers = data.shift();
+  const idx = indexer(headers);
+
   const productTotals = {};
-  orderData.forEach(([name, qty]) => {
-    if (name && qty) {
+  data.forEach(row => {
+    const quantityStr = String(row[idx.cantidad] || '');
+    if (quantityStr.startsWith('E')) return; // Skip deleted orders
+
+    const name = row[idx.producto];
+    const qty = parseInt(quantityStr, 10) || 0;
+    if (name && qty > 0) {
       if (!productTotals[name]) { productTotals[name] = 0; }
-      productTotals[name] += parseInt(qty, 10) || 0;
+      productTotals[name] += qty;
     }
   });
 
+  const deletedStock = getDeletedOrdersStock();
   const stockMap = getStockFromOrders();
   const categorySummary = {};
 
   for (const productName in productTotals) {
+    const needed = productTotals[productName];
+    const availableFromDeleted = deletedStock.get(productName) || 0;
+    const netToPack = Math.max(0, needed - availableFromDeleted);
+
+    if (netToPack === 0) continue;
+
     const category = skuMap[productName] ? skuMap[productName].category : 'Sin Categoría';
     if (!categorySummary[category]) {
       categorySummary[category] = { count: 0, products: {} };
@@ -2402,7 +2581,7 @@ function getPackagingData() {
     }
 
     categorySummary[category].products[productName] = {
-      total: productTotals[productName],
+      total: netToPack,
       stock: inventoryValue
     };
   }
@@ -2482,9 +2661,16 @@ function getPackagingDataForExtraTime(statusToProcess, acquisitionState) {
     }
   });
 
+  const deletedStock = getDeletedOrdersStock();
   const categorySummary = {};
 
   for (const productName in productTotals) {
+    const needed = productTotals[productName];
+    const availableFromDeleted = deletedStock.get(productName) || 0;
+    const netToPack = Math.max(0, needed - availableFromDeleted);
+
+    if (netToPack === 0) continue;
+
     const category = skuMap[productName] ? skuMap[productName].category : 'Sin Categoría';
     if (!categorySummary[category]) {
       categorySummary[category] = { count: 0, products: {} };
@@ -2506,7 +2692,7 @@ function getPackagingDataForExtraTime(statusToProcess, acquisitionState) {
     }
 
     categorySummary[category].products[productName] = {
-      total: productTotals[productName],
+      total: netToPack,
       stock: inventoryValue
     };
   }
