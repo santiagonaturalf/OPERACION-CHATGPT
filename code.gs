@@ -2895,7 +2895,7 @@ function calculateNewAcquisitionPlan(mode = 'wholesale') {
 }
 
 function showAcquisitionEditor() {
-  const dataForEditor = getAcquisitionDataForEditor();
+  const dataForEditor = getAcquisitionDataForEditor('wholesale');
   const template = HtmlService.createTemplateFromFile('AcquisitionEditorDialog');
   // Pasar el objeto de datos directamente al template. La serialización se hará en el lado del cliente.
   template.data = dataForEditor;
