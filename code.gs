@@ -2751,6 +2751,9 @@ function loadAcquisitionDataFromSheet(ss, acquisitionSheet) {
   const proveedoresSheet = ss.getSheetByName('Proveedores');
   const ordersSheet = ss.getSheetByName('Orders');
 
+  // --- FIX: Get the most recent inventory from the "Inventario Actual" sheet ---
+  const realTimeInventory = getCurrentInventory();
+
   // 1. Get all possible purchase formats, categories, and breakdown data
   const { productToSkuMap, baseProductPurchaseOptions } = getPurchaseDataMaps(skuSheet);
   const baseProductNeeds = calculateBaseProductNeeds(ordersSheet, productToSkuMap); // Recalculate needs to get breakdown
@@ -2774,8 +2777,8 @@ function loadAcquisitionDataFromSheet(ss, acquisitionSheet) {
   const productCol = headers.indexOf("Producto Base");
   const qtyCol = headers.indexOf("Cantidad a Comprar");
   const formatCol = headers.indexOf("Formato de Compra");
-  const invActualCol = headers.indexOf("Inventario Actual");
-  const invActualUnitCol = headers.indexOf("Unidad Inventario Actual");
+  // const invActualCol = headers.indexOf("Inventario Actual"); // No longer primary source
+  // const invActualUnitCol = headers.indexOf("Unidad Inventario Actual"); // No longer primary source
   const needCol = headers.indexOf("Necesidad de Venta");
   const needUnitCol = headers.indexOf("Unidad Venta");
   const supplierCol = headers.indexOf("Proveedor");
@@ -2784,6 +2787,9 @@ function loadAcquisitionDataFromSheet(ss, acquisitionSheet) {
   const acquisitionPlan = data.map(row => {
     const productName = row[productCol];
     const normalizedKey = normalizeKey(productName);
+
+    // --- FIX: Use real-time inventory if available, otherwise fallback to sheet data ---
+    const inventoryInfo = realTimeInventory[normalizedKey] || { quantity: row[headers.indexOf("Inventario Actual")], unit: row[headers.indexOf("Unidad Inventario Actual")] };
 
     const purchaseOptions = baseProductPurchaseOptions[normalizedKey] || { options: [] };
     const availableFormats = purchaseOptions.options;
@@ -2797,8 +2803,8 @@ function loadAcquisitionDataFromSheet(ss, acquisitionSheet) {
       productName: productName,
       suggestedQty: row[qtyCol],
       selectedFormatString: row[formatCol],
-      currentInventory: row[invActualCol],
-      currentInventoryUnit: row[invActualUnitCol],
+      currentInventory: inventoryInfo.quantity, // Use updated value
+      currentInventoryUnit: inventoryInfo.unit, // Use updated value
       totalNeed: row[needCol],
       unit: unit,
       supplier: row[supplierCol],
