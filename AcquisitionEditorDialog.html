@@ -143,7 +143,10 @@
     <table id="acquisitions-table">
       <thead>
         <tr>
-          <th style="width: 50px; text-align: center;">Aprobado</th>
+          <th style="width: 50px; text-align: center;">
+            <input type="checkbox" id="select-all-checkbox" title="Seleccionar todo lo visible">
+            Aprobado
+          </th>
           <th>Producto Base</th>
           <th>Inventario Actual</th>
           <th>Necesidad Venta</th>
@@ -185,7 +188,7 @@
     const supplierFilter = document.getElementById('supplier-filter');
     const productSearchFilter = document.getElementById('product-search-filter');
     const reviewFilter = document.getElementById('review-filter');
-    const unapprovedFilter = document.getElementById('unapproved-filter'); // New filter
+    const unapprovedFilter = document.getElementById('unapproved-filter');
 
     function processPlanData(plan) {
        plan.forEach(item => {
@@ -193,7 +196,6 @@
           item.allFormatStrings = item.availableFormats.map(f => `${f.name} (${f.size} ${f.unit})`);
           item.selectedFormatString = `${item.suggestedFormat.name} (${item.suggestedFormat.size} ${item.suggestedFormat.unit})`;
           item.correctedInventory = null;
-          // 'approved' property is now expected from the server
         });
         return plan;
     }
@@ -205,7 +207,6 @@
         allCategories = serverData.allCategories;
         planData = processPlanData(serverData.acquisitionPlan);
 
-        // Populate filters
         allCategories.forEach(cat => {
             const opt = document.createElement('option');
             opt.value = cat;
@@ -223,9 +224,8 @@
         supplierFilter.addEventListener('change', renderTable);
         productSearchFilter.addEventListener('input', renderTable);
         reviewFilter.addEventListener('change', renderTable);
-        unapprovedFilter.addEventListener('change', renderTable); // New listener
+        unapprovedFilter.addEventListener('change', renderTable);
 
-        // Add event listeners for the breakdown tooltip
         tableBody.addEventListener('mouseover', handleMouseOver);
         tableBody.addEventListener('mouseout', handleMouseOut);
         tableBody.addEventListener('mousemove', handleMouseMove);
@@ -238,30 +238,48 @@
           const row = e.target.closest('tr');
           if (!row) return;
           const index = parseInt(row.getAttribute('data-index'), 10);
-
-          if (e.target.classList.contains('quantity-input')) {
-            planData[index].suggestedQty = e.target.value;
-            updateRowAppearance(row, planData[index]);
-          } else if (e.target.classList.contains('format-select')) {
-            planData[index].selectedFormatString = e.target.value;
-            updateRowAppearance(row, planData[index]);
-          } else if (e.target.classList.contains('supplier-select')) {
-            planData[index].supplier = e.target.value;
-            updateRowAppearance(row, planData[index]);
-          } else if (e.target.classList.contains('inventory-correction-input')) {
-            const value = parseFloat(e.target.value);
-            planData[index].correctedInventory = isNaN(value) ? null : value;
+          if (planData[index]) {
+            if (e.target.classList.contains('quantity-input')) {
+              planData[index].suggestedQty = e.target.value;
+            } else if (e.target.classList.contains('format-select')) {
+              planData[index].selectedFormatString = e.target.value;
+            } else if (e.target.classList.contains('supplier-select')) {
+              planData[index].supplier = e.target.value;
+            } else if (e.target.classList.contains('inventory-correction-input')) {
+              const value = parseFloat(e.target.value);
+              planData[index].correctedInventory = isNaN(value) ? null : value;
+            }
             updateRowAppearance(row, planData[index]);
           }
         });
 
-        // Use 'change' for checkboxes
+        const selectAllCheckbox = document.getElementById('select-all-checkbox');
+        selectAllCheckbox.addEventListener('change', function() {
+          const isChecked = this.checked;
+          const visibleRows = tableBody.querySelectorAll('tr[data-index]');
+
+          visibleRows.forEach(row => {
+            const index = parseInt(row.getAttribute('data-index'), 10);
+            const checkbox = row.querySelector('.approved-checkbox');
+            if (checkbox && checkbox.checked !== isChecked) {
+              checkbox.checked = isChecked;
+              if (planData[index]) {
+                  planData[index].approved = isChecked;
+              }
+            }
+          });
+          this.indeterminate = false;
+        });
+
         tableBody.addEventListener('change', function(e) {
             if (e.target.classList.contains('approved-checkbox')) {
                 const row = e.target.closest('tr');
                 if (!row) return;
                 const index = parseInt(row.getAttribute('data-index'), 10);
-                planData[index].approved = e.target.checked;
+                if (planData[index]) {
+                    planData[index].approved = e.target.checked;
+                }
+                updateSelectAllCheckboxState();
             }
         });
 
@@ -276,7 +294,6 @@
           }
         });
 
-        // --- DYNAMIC PADDING ADJUSTMENT ---
         const container = document.querySelector('.container');
         const footer = document.querySelector('.footer-actions');
         function adjustContainerPadding() {
@@ -287,7 +304,6 @@
         }
         adjustContainerPadding();
         window.addEventListener('resize', adjustContainerPadding);
-        // --- END DYNAMIC PADDING ---
 
       } catch (e) {
         console.error("Error al procesar los datos iniciales:", e);
@@ -308,14 +324,11 @@
       const inventoryForCalc = (typeof item.correctedInventory === 'number' && !isNaN(item.correctedInventory))
         ? item.correctedInventory
         : item.currentInventory;
-
       const quantity = item.suggestedQty;
       const formatString = item.selectedFormatString;
       const finalInventory = calculateFinalInventory(item, quantity, formatString, inventoryForCalc);
       const finalInventoryCell = row.querySelector('.final-inventory');
-
       row.classList.remove('low-stock-warning');
-
       if (parseFloat(finalInventory) < 0) {
         finalInventoryCell.textContent = 'REVISAR INVENTARIO';
       } else {
@@ -332,18 +345,14 @@
       const searchTerm = productSearchFilter.value.toLowerCase();
       const showOnlyReview = reviewFilter.checked;
       const showOnlyUnapproved = unapprovedFilter.checked;
-
       tableBody.innerHTML = '';
 
       if (showReviewHeader) {
         const anyItemNeedsReview = planData.some(item => {
-            const inventoryForCalc = (typeof item.correctedInventory === 'number' && !isNaN(item.correctedInventory))
-              ? item.correctedInventory
-              : item.currentInventory;
+            const inventoryForCalc = (typeof item.correctedInventory === 'number' && !isNaN(item.correctedInventory)) ? item.correctedInventory : item.currentInventory;
             const finalInventory = calculateFinalInventory(item, item.suggestedQty, item.selectedFormatString, inventoryForCalc);
             return parseFloat(finalInventory) < 0;
         });
-
         if (anyItemNeedsReview) {
             const separatorRow = document.createElement('tr');
             separatorRow.classList.add('review-alert-header');
@@ -357,15 +366,9 @@
           const supplierOk = !selectedSupplier || item.supplier === selectedSupplier;
           const searchOk = !searchTerm || item.productName.toLowerCase().includes(searchTerm);
           if (!(catOk && supplierOk && searchOk)) return false;
-
-          if (showOnlyUnapproved && item.approved) {
-              return false;
-          }
-
+          if (showOnlyUnapproved && item.approved) return false;
           if (showOnlyReview) {
-            const inventoryForCalc = (typeof item.correctedInventory === 'number' && !isNaN(item.correctedInventory))
-              ? item.correctedInventory
-              : item.currentInventory;
+            const inventoryForCalc = (typeof item.correctedInventory === 'number' && !isNaN(item.correctedInventory)) ? item.correctedInventory : item.currentInventory;
             const finalInventory = calculateFinalInventory(item, item.suggestedQty, item.selectedFormatString, inventoryForCalc);
             return parseFloat(finalInventory) < 0;
           }
@@ -379,11 +382,9 @@
         const index = planData.indexOf(item);
         const row = document.createElement('tr');
         row.setAttribute('data-index', index);
-
         if (item.breakdown && item.breakdown.length > 0) {
           row.setAttribute('data-breakdown', JSON.stringify(item.breakdown));
         }
-
         let inventoryCellHtml;
         if (item.currentInventory < 0) {
           row.classList.add('negative-stock-error');
@@ -395,7 +396,6 @@
         } else {
           inventoryCellHtml = `<td>${item.currentInventory} ${item.currentInventoryUnit}</td>`;
         }
-
         row.innerHTML = `
           <td style="text-align: center;"><input type="checkbox" class="approved-checkbox" style="width: auto;" ${item.approved ? 'checked' : ''}></td>
           <td class="product-base-cell">${item.productName}</td>
@@ -416,14 +416,34 @@
       };
 
       neededItems.forEach(renderItem);
-
       if (notNeededItems.length > 0 && neededItems.length > 0) {
         const separatorRow = document.createElement('tr');
         separatorRow.innerHTML = `<th colspan="8" style="text-align: center; background-color: #e9ecef; color: #495057; font-size: 14px; padding: 10px;">Productos sin necesidad de compra inmediata</th>`;
         tableBody.appendChild(separatorRow);
       }
-
       notNeededItems.forEach(renderItem);
+      updateSelectAllCheckboxState();
+    }
+
+    function updateSelectAllCheckboxState() {
+      const selectAllCheckbox = document.getElementById('select-all-checkbox');
+      const visibleCheckboxes = Array.from(tableBody.querySelectorAll('tr .approved-checkbox'));
+      if (visibleCheckboxes.length === 0) {
+        selectAllCheckbox.checked = false;
+        selectAllCheckbox.indeterminate = false;
+        return;
+      }
+      const checkedCount = visibleCheckboxes.filter(cb => cb.checked).length;
+      if (checkedCount === 0) {
+        selectAllCheckbox.checked = false;
+        selectAllCheckbox.indeterminate = false;
+      } else if (checkedCount === visibleCheckboxes.length) {
+        selectAllCheckbox.checked = true;
+        selectAllCheckbox.indeterminate = false;
+      } else {
+        selectAllCheckbox.checked = false;
+        selectAllCheckbox.indeterminate = true;
+      }
     }
 
     function handleAddNewFormat(productBase, index) {
@@ -482,7 +502,7 @@
               item.selectedFormatString = response.newFormatString;
               const row = tableBody.querySelector(`tr[data-index="${newFormatData.rowIndex}"]`);
               if (row) {
-                 const formatCell = row.cells[5]; // Now 6th cell
+                 const formatCell = row.cells[5];
                  formatCell.innerHTML = `<div style="display: flex; align-items: center; gap: 4px;"><select class="format-select" style="width: auto; flex-grow: 1;">${createOptions(item.allFormatStrings, item.selectedFormatString)}</select><button type="button" class="add-format-btn" title="Crear nuevo formato de compra para este producto" data-product-base="${item.productName}">+</button></div>`;
               }
               closeModal();
@@ -502,7 +522,6 @@
       ).join('');
     }
 
-    // --- Tooltip Handler Functions ---
     function handleMouseOver(e) {
         if (!document.getElementById('toggle-breakdown-cb').checked) { const tooltip = document.getElementById('breakdown-tooltip'); if (tooltip) tooltip.style.display = 'none'; return; }
         if (e.target.classList.contains('product-base-cell')) {
@@ -532,7 +551,7 @@
           quantity: item.suggestedQty,
           selectedFormatString: item.selectedFormatString,
           supplier: item.supplier,
-          approved: item.approved // Include approved state
+          approved: item.approved
       }));
       google.script.run
         .withSuccessHandler(handleSaveSuccess)
